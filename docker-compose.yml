@@ -1,0 +1,52 @@
+services:
+  gateway:
+    build:
+      context: .
+      args:
+        INSTALL_NER: ${NER_ENABLED:-false}
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      BACKEND_URLS: http://backend-1:8000,http://backend-2:8000,http://backend-3:8000
+      NER_ENABLED: ${NER_ENABLED:-false}
+      NER_MODEL: ${NER_MODEL:-LLAIMlegal/ru-legal-ner}
+      NER_DEVICE: ${NER_DEVICE:-cpu}
+      NER_MIN_CONFIDENCE: ${NER_MIN_CONFIDENCE:-0.80}
+      NER_MAX_LENGTH: ${NER_MAX_LENGTH:-512}
+      NER_STRIDE: ${NER_STRIDE:-64}
+      NER_MAX_CONCURRENCY: ${NER_MAX_CONCURRENCY:-1}
+    ports:
+      - "8000:8000"
+    depends_on:
+      backend-1:
+        condition: service_healthy
+      backend-2:
+        condition: service_healthy
+      backend-3:
+        condition: service_healthy
+
+  backend-1: &backend
+    build: .
+    command: uvicorn mock_llm.main:app --host 0.0.0.0 --port 8000
+    environment:
+      BACKEND_ID: backend-1
+      CHUNK_SIZE: ${CHUNK_SIZE:-12}
+      CHUNK_DELAY_SECONDS: ${CHUNK_DELAY_SECONDS:-0.2}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  backend-2:
+    <<: *backend
+    environment:
+      BACKEND_ID: backend-2
+      CHUNK_SIZE: ${CHUNK_SIZE:-12}
+      CHUNK_DELAY_SECONDS: ${CHUNK_DELAY_SECONDS:-0.2}
+
+  backend-3:
+    <<: *backend
+    environment:
+      BACKEND_ID: backend-3
+      CHUNK_SIZE: ${CHUNK_SIZE:-12}
+      CHUNK_DELAY_SECONDS: ${CHUNK_DELAY_SECONDS:-0.2}

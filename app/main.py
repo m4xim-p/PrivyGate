@@ -1,0 +1,168 @@
+"""FastAPI entrypoint for the privacy gateway."""
+
+import asyncio
+import logging
+import os
+import time
+import uuid
+from collections.abc import Sequence
+from contextlib import asynccontextmanager
+
+import httpx
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
+
+from app.models import ChatCompletionRequest
+from app.ner import NERDetector, TransformersNERBackend
+from app.pii import PIIDetector, PIIMasker, default_rule_detectors
+from app.proxy import open_upstream_stream
+from app.routing import RoundRobinRouter
+
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("privygate.gateway")
+
+
+def _backend_urls() -> list[str]:
+    configured = os.getenv(
+        "BACKEND_URLS",
+        "http://localhost:8001,http://localhost:8002,http://localhost:8003",
+    )
+    return [url.strip() for url in configured.split(",") if url.strip()]
+
+
+def _env_enabled(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.casefold() in {"1", "true", "yes", "on"}
+
+
+def _mask_payload(
+    body: ChatCompletionRequest,
+    detectors: Sequence[PIIDetector],
+) -> tuple[dict[str, object], PIIMasker]:
+    masker = PIIMasker(detectors=detectors)
+    payload = body.as_upstream_payload()
+    for message in payload["messages"]:
+        message["content"] = masker.mask(message["content"])
+    return payload, masker
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    timeout = httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0)
+    app.state.http_client = httpx.AsyncClient(
+        timeout=timeout,
+        limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100),
+    )
+    app.state.router = RoundRobinRouter(_backend_urls())
+    app.state.ner_enabled = _env_enabled("NER_ENABLED")
+    app.state.ner_semaphore = asyncio.Semaphore(
+        int(os.getenv("NER_MAX_CONCURRENCY", "1"))
+    )
+    detectors = list(default_rule_detectors())
+    if app.state.ner_enabled:
+        model_name = os.getenv("NER_MODEL", "LLAIMlegal/ru-legal-ner")
+        device = os.getenv("NER_DEVICE", "cpu")
+        started_at = time.perf_counter()
+        try:
+            ner_backend = await asyncio.to_thread(
+                TransformersNERBackend.from_pretrained,
+                model_name,
+                device=device,
+                max_length=int(os.getenv("NER_MAX_LENGTH", "512")),
+                stride=int(os.getenv("NER_STRIDE", "64")),
+            )
+        except Exception as exc:
+            logger.error(
+                "ner_model_initialization_failed model=%s error_type=%s",
+                model_name,
+                type(exc).__name__,
+            )
+            raise
+        detectors.append(
+            NERDetector(
+                ner_backend,
+                min_confidence=float(os.getenv("NER_MIN_CONFIDENCE", "0.80")),
+            )
+        )
+        logger.info(
+            "ner_model_initialized model=%s latency_ms=%.1f device=%s",
+            model_name,
+            (time.perf_counter() - started_at) * 1000,
+            device,
+        )
+    app.state.pii_detectors = tuple(detectors)
+    yield
+    await app.state.http_client.aclose()
+
+
+app = FastAPI(title="PrivyGate", version="0.1.0", lifespan=lifespan)
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok", "service": "gateway"}
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(
+    body: ChatCompletionRequest,
+    request: Request,
+) -> StreamingResponse:
+    request_id = str(uuid.uuid4())
+    detectors = getattr(request.app.state, "pii_detectors", None)
+    if detectors is None:
+        detectors = default_rule_detectors()
+    if getattr(request.app.state, "ner_enabled", False):
+        async with request.app.state.ner_semaphore:
+            payload, masker = await asyncio.to_thread(_mask_payload, body, detectors)
+    else:
+        payload, masker = _mask_payload(body, detectors)
+
+    backend = await request.app.state.router.next_backend()
+    pii_decisions = ",".join(
+        f"{decision.pii_type}:{decision.confidence:.2f}:{decision.action}"
+        for decision in masker.decisions
+    ) or "none"
+    logger.info(
+        "request_started request_id=%s backend=%s pii_count=%d pii_types=%s "
+        "pii_candidates_count=%d pii_decisions=%s",
+        request_id,
+        backend,
+        len(masker.mapping),
+        ",".join(masker.pii_types) or "none",
+        len(masker.decisions),
+        pii_decisions,
+    )
+
+    try:
+        upstream = await open_upstream_stream(
+            client=request.app.state.http_client,
+            backend=backend,
+            payload=payload,
+            mapping=masker.mapping,
+            request_id=request_id,
+            pii_types=masker.pii_types,
+        )
+    except (httpx.HTTPError, OSError) as exc:
+        # Log only the exception class: an exception message can contain unsafe data.
+        logger.error(
+            "upstream_unavailable request_id=%s backend=%s error_type=%s",
+            request_id,
+            backend,
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=502, detail="LLM backend unavailable") from None
+
+    media_type = upstream.response.headers.get("content-type", "text/plain").split(";", 1)[0]
+    return StreamingResponse(
+        upstream.body,
+        status_code=upstream.response.status_code,
+        media_type=media_type,
+        headers={"X-Request-ID": request_id, "X-Backend": backend},
+    )
