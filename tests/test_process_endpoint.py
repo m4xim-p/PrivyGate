@@ -5,7 +5,7 @@ import asyncio
 import httpx
 
 from app.main import app
-from app.pii import PIIDetector, PIIMatch, default_rule_detectors
+from app.pii import PIIMatch, default_rule_detectors
 from app.pii_engine import PIIMaskingEngine
 from app.process_service import ProcessService
 from app.process_store import ProcessStore
