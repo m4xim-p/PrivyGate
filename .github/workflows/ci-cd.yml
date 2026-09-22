@@ -1,0 +1,73 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Не запускать два деплоя одновременно; новый пуш отменяет предыдущий прогон на той же ветке.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 1) Тесты на каждый push/PR
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e '.[dev]'
+
+      - name: Run tests
+        run: pytest
+
+  # 2) Деплой на сервер только после зелёных тестов и только из main
+  deploy:
+    name: Deploy to server
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            cd "${{ secrets.DEPLOY_PATH }}"
+
+            # Обновляем рабочую копию до origin/main
+            git fetch --prune origin main
+            git reset --hard origin/main
+
+            # Пересобираем и поднимаем стек
+            docker compose up -d --build --remove-orphans
+            docker image prune -f
+
+            # Ждём health у gateway (порт 8000 внутри сервера)
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+                echo "gateway healthy"
+                break
+              fi
+              sleep 2
+              if [ "$i" -eq 30 ]; then
+                echo "::error::health check failed"
+                docker compose logs --tail=80
+                exit 1
+              fi
+            done
