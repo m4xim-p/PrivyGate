@@ -18,7 +18,6 @@ from app.pii import (
     PhoneDetector,
 )
 
-
 BACKEND_ID = os.getenv("BACKEND_ID", "backend-1")
 CHUNK_DELAY_SECONDS = float(os.getenv("CHUNK_DELAY_SECONDS", "0.2"))
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "12"))

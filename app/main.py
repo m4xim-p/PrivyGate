@@ -14,19 +14,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.errors import (
-    ConflictError,
-    GoneError,
-    PayloadTooLargeError,
     ProcessError,
     TooManyRequestsError,
     ValidationError,
 )
 from app.models import ChatCompletionRequest, ProcessRequest, ProcessResponse
-from app.ner import NERDetector, TransformersNERBackend
+from app.ner import DEFAULT_NER_MODEL_REVISION, NERDetector, TransformersNERBackend
 from app.pii import (
+    NameDetector,
     PIIDetector,
     PIIMasker,
-    NameDetector,
     default_rule_detectors,
 )
 from app.pii_engine import PIIMaskingEngine
@@ -34,7 +31,6 @@ from app.process_service import ProcessService
 from app.process_store import ProcessStore
 from app.proxy import open_upstream_stream
 from app.routing import RoundRobinRouter
-
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -84,12 +80,14 @@ async def lifespan(app: FastAPI):
     detectors = list(default_rule_detectors())
     if app.state.ner_enabled:
         model_name = os.getenv("NER_MODEL", "LLAIMlegal/ru-legal-ner")
+        model_revision = os.getenv("NER_MODEL_REVISION", DEFAULT_NER_MODEL_REVISION)
         device = os.getenv("NER_DEVICE", "cpu")
         started_at = time.perf_counter()
         try:
             ner_backend = await asyncio.to_thread(
                 TransformersNERBackend.from_pretrained,
                 model_name,
+                revision=model_revision,
                 device=device,
                 max_length=int(os.getenv("NER_MAX_LENGTH", "512")),
                 stride=int(os.getenv("NER_STRIDE", "64")),

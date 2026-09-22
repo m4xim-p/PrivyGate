@@ -1,7 +1,9 @@
 import logging
+import sys
+from types import SimpleNamespace
 
-from app.ner import NERDetector, NERTokenPrediction
-from app.pii import PIIMasker, PhoneDetector
+from app.ner import NERDetector, NERTokenPrediction, TransformersNERBackend
+from app.pii import PhoneDetector, PIIMasker
 
 
 class FakeNERBackend:
@@ -12,6 +14,47 @@ class FakeNERBackend:
     def predict(self, text: str) -> list[NERTokenPrediction]:
         self.calls += 1
         return self.predictions
+
+
+def test_transformers_backend_pins_revision(monkeypatch) -> None:
+    calls: list[tuple[str, str, dict[str, object]]] = []
+
+    class FakeTokenizer:
+        is_fast = True
+
+    class FakeModel:
+        def to(self, device: str) -> None:
+            self.device = device
+
+        def eval(self) -> None:
+            self.evaluated = True
+
+    class FakeTokenizerFactory:
+        @staticmethod
+        def from_pretrained(model_name: str, **kwargs: object) -> FakeTokenizer:
+            calls.append(("tokenizer", model_name, kwargs))
+            return FakeTokenizer()
+
+    class FakeModelFactory:
+        @staticmethod
+        def from_pretrained(model_name: str, **kwargs: object) -> FakeModel:
+            calls.append(("model", model_name, kwargs))
+            return FakeModel()
+
+    fake_torch = SimpleNamespace(device=lambda value: value)
+    fake_transformers = SimpleNamespace(
+        AutoModelForTokenClassification=FakeModelFactory,
+        AutoTokenizer=FakeTokenizerFactory,
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    TransformersNERBackend.from_pretrained("example/model", revision="commit-sha")
+
+    assert calls == [
+        ("tokenizer", "example/model", {"revision": "commit-sha", "use_fast": True}),
+        ("model", "example/model", {"revision": "commit-sha"}),
+    ]
 
 
 def person_tokens(

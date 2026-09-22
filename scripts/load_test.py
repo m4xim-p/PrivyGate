@@ -11,7 +11,6 @@ from dataclasses import dataclass
 
 import httpx
 
-
 DEFAULT_URL = "http://localhost:8000/v1/chat/completions"
 
 

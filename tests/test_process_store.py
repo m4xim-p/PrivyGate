@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from app.errors import TooManyRequestsError
-from app.process_store import ProcessSession, ProcessStore, SessionState
+from app.process_store import ProcessStore, SessionState
 
 
 class _FakeClock:

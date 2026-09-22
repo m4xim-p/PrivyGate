@@ -17,6 +17,7 @@ not per pair. Uses only synthetic PII.
 
 import argparse
 import asyncio
+import contextlib
 import math
 import statistics
 import time
@@ -24,7 +25,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 import httpx
-
 
 DEFAULT_URL = "http://localhost:8000/process"
 DEFAULT_DURATION = 300.0
@@ -342,14 +342,12 @@ async def run_load_test(
         limits=limits,
     ) as client:
         # Warm up.
-        try:
+        with contextlib.suppress(httpx.HTTPError):
             await client.post(
                 url,
                 json={"payload": "Иванов Иван Иванович", "payload_id": "warm"},
                 timeout=timeout,
             )
-        except httpx.HTTPError:
-            pass
 
         started_at = time.monotonic()
         counter = 0

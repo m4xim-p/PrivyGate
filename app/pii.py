@@ -7,7 +7,6 @@ from typing import Protocol
 
 from app.data.russian_names import FIRST_NAMES, PATRONYMICS, SURNAMES
 
-
 EMAIL_PATTERN = re.compile(
     r"(?<![\w.+-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+"
     r"@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
@@ -325,7 +324,10 @@ class SNILSDetector:
     def _has_valid_checksum(digits: str) -> bool:
         if len(digits) != 11:
             return False
-        checksum_sum = sum(int(digit) * weight for digit, weight in zip(digits[:9], range(9, 0, -1)))
+        checksum_sum = sum(
+            int(digit) * weight
+            for digit, weight in zip(digits[:9], range(9, 0, -1), strict=True)
+        )
         if checksum_sum < 100:
             expected = checksum_sum
         elif checksum_sum in (100, 101):
@@ -377,7 +379,14 @@ class INNDetector:
 
     @staticmethod
     def _control_digit(digits: str, weights: Sequence[int]) -> int:
-        return sum(int(digit) * weight for digit, weight in zip(digits, weights)) % 11 % 10
+        return (
+            sum(
+                int(digit) * weight
+                for digit, weight in zip(digits, weights, strict=True)
+            )
+            % 11
+            % 10
+        )
 
 
 class CardDetector:
@@ -671,13 +680,15 @@ class DateOfBirthDetector:
                 )
             )
         for match in DATE_TEXT_PATTERN.finditer(text):
-            day = RUSSIAN_DAY_WORDS.get(match.group("day").casefold())
-            month = RUSSIAN_MONTHS.get(match.group("month").casefold())
+            text_day = RUSSIAN_DAY_WORDS.get(match.group("day").casefold())
+            text_month = RUSSIAN_MONTHS.get(match.group("month").casefold())
             year_text = match.group("year")
-            year = int(year_text) if year_text else None
-            if day is None or month is None:
+            text_year = int(year_text) if year_text else None
+            if text_day is None or text_month is None:
                 continue
-            if year is not None and not _is_valid_calendar_date(day, month, year):
+            if text_year is not None and not _is_valid_calendar_date(
+                text_day, text_month, text_year
+            ):
                 continue
             confidence = self._confidence(text, match.start(), match.end())
             matches.append(
@@ -1448,9 +1459,7 @@ class NameDetector:
             a, b, c = lowered
             if _is_surname(a) and b in FIRST_NAMES and c in PATRONYMICS:
                 return True
-            if a in FIRST_NAMES and b in PATRONYMICS and _is_surname(c):
-                return True
-            return False
+            return a in FIRST_NAMES and b in PATRONYMICS and _is_surname(c)
 
         # Four tokens: "Фамилия Имя Отчество" plus an extra token is unlikely.
         return False
@@ -1461,9 +1470,7 @@ def _is_surname(token: str) -> bool:
     if token in SURNAMES:
         return True
     # Feminine surnames usually end in -а/-я (Смирнова, Иванова, Кузнецова).
-    if token.endswith(("а", "я")) and token[:-1] in SURNAMES:
-        return True
-    return False
+    return token.endswith(("а", "я")) and token[:-1] in SURNAMES
 
 
 # ---------------------------------------------------------------------------
@@ -1529,7 +1536,6 @@ KNOWN_PERSONS = frozenset(
         "корней чуковский",
         "чуковский",
         "алексей толстой",
-        "алексей толстой",
         "михаил шолохов",
         "шолохов",
         "александр солженицын",
@@ -1549,7 +1555,6 @@ KNOWN_PERSONS = frozenset(
         "аркадий стругацкий",
         "стругацкий",
         "борис стругацкий",
-        "стругацкий",
     }
 )
 

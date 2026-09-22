@@ -85,4 +85,5 @@ demasking детерминированы; конфликт не изменяет
 - [ ] Архитектурная схема и результаты quality/load tests.
 - [ ] Демо нормального, trap, policy и failure сценариев.
 - [ ] Список известных ограничений и план развития.
-- [ ] Проверка complexity/DRY/KISS/deprecated APIs перед ZIP.
+- [x] Merge-blocking Ruff/mypy/Bandit/pip-audit gate для complexity,
+  conventions, deprecated APIs, типизации, SAST и уязвимостей зависимостей.

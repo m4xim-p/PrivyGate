@@ -90,6 +90,8 @@ LLM proxy, и как отдельный сервис обработки стро
 - Store ограничивается по числу entries и суммарному приблизительному размеру в байтах;
   после demasking session кратко сохраняется для безопасного retry.
 - Все примеры и fixtures содержат только синтетические данные.
+- Каждый push и PR проходит merge-blocking gate: Ruff (lint/complexity/deprecated
+  syntax), mypy (typing), Bandit (Python SAST), pip-audit (dependency CVE) и pytest.
 
 ## Не является текущей целью
 

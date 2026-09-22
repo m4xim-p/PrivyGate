@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
 
 from app.errors import GoneError, TooManyRequestsError
 
@@ -41,7 +40,7 @@ class _Pending:
     future: asyncio.Future[str]
     reserved_bytes: int
     created_at: float
-    fingerprint: tuple[str, int]
+    fingerprint: str
 
 
 class ProcessStore:
@@ -81,7 +80,7 @@ class ProcessStore:
         self.current_bytes = 0
 
     async def get_or_create_pending(
-        self, payload_id: str, payload_bytes: int, fingerprint: tuple[str, int]
+        self, payload_id: str, payload_bytes: int, fingerprint: str
     ) -> PendingResult:
         async with self._lock:
             self._evict_expired_locked()
@@ -203,13 +202,16 @@ class ProcessStore:
                 start = session.created_at
             else:
                 ttl = self._completed_ttl
-                start = session.completed_at if session.completed_at is not None else session.created_at
+                start = (
+                    session.completed_at
+                    if session.completed_at is not None
+                    else session.created_at
+                )
             if start + ttl <= now:
                 expired_ids.append(payload_id)
         for payload_id in expired_ids:
-            session = self._sessions.pop(payload_id, None)
-            if session is not None:
-                self.current_bytes -= session.session_bytes
+            session = self._sessions.pop(payload_id)
+            self.current_bytes -= session.session_bytes
             self._tombstones[payload_id] = now + self._tombstone_ttl
             self._trim_tombstones_locked()
 
@@ -218,9 +220,8 @@ class ProcessStore:
             if pending.created_at + self._active_ttl <= now:
                 expired_pending.append(payload_id)
         for payload_id in expired_pending:
-            pending = self._pending.pop(payload_id, None)
-            if pending is not None:
-                self.current_bytes -= pending.reserved_bytes
+            pending = self._pending.pop(payload_id)
+            self.current_bytes -= pending.reserved_bytes
 
     def _trim_tombstones_locked(self) -> None:
         if len(self._tombstones) <= self._tombstone_max_entries:

@@ -140,8 +140,12 @@ docker compose logs -f backend-1 backend-2 backend-3
 ## Тесты
 
 ```bash
-pytest
+pip install -e '.[dev]'
+./scripts/check.sh
 ```
+
+Gate последовательно запускает Ruff (lint, conventions и complexity), mypy,
+Bandit, pip-audit и полный pytest. Та же команда блокирует merge/deploy в CI.
 
 ## Async load test
 
@@ -169,7 +173,9 @@ NER_ENABLED=true uvicorn app.main:app --port 8000
 ```
 
 Модель задаётся через `NER_MODEL`; начальное значение —
-`LLAIMlegal/ru-legal-ner`. Fast tokenizer сохраняет offsets исходной строки,
+`LLAIMlegal/ru-legal-ner`. Checkpoint закреплён через `NER_MODEL_REVISION`
+(по умолчанию `924a4b1912ec6e55a4be959cab215ad8ff32a750`); при смене модели нужно
+явно указать соответствующий полный commit SHA. Fast tokenizer сохраняет offsets исходной строки,
 LOC и ORG игнорируются. Модель создаётся один раз в FastAPI lifespan, а inference
 выполняется в worker thread. Длинные тексты обрабатываются перекрывающимися
 tokenizer windows. В лог попадают только latency, status и количества, без текста.

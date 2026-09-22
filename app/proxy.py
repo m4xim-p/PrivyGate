@@ -9,7 +9,6 @@ import httpx
 
 from app.pii import StreamingDemasker
 
-
 logger = logging.getLogger("privygate.proxy")
 
 

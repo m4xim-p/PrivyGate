@@ -1,8 +1,8 @@
 from app.pii import (
     CardDetector,
     INNDetector,
-    PIIMasker,
     PassportDetector,
+    PIIMasker,
     SNILSDetector,
 )
 

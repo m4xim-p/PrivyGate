@@ -9,8 +9,9 @@ from typing import Any, Protocol
 
 from app.pii import PIIDetector, PIIMatch, is_known_person
 
-
 logger = logging.getLogger("privygate.ner")
+
+DEFAULT_NER_MODEL_REVISION = "924a4b1912ec6e55a4be959cab215ad8ff32a750"
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +170,7 @@ class TransformersNERBackend:
         cls,
         model_name: str,
         *,
+        revision: str = DEFAULT_NER_MODEL_REVISION,
         device: str = "cpu",
         max_length: int = 512,
         stride: int = 64,
@@ -181,8 +183,15 @@ class TransformersNERBackend:
                 "NER dependencies are missing; install PrivyGate with the 'ner' extra"
             ) from exc
 
-        tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-        model = AutoModelForTokenClassification.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            revision=revision,
+            use_fast=True,
+        )
+        model = AutoModelForTokenClassification.from_pretrained(
+            model_name,
+            revision=revision,
+        )
         return cls(
             tokenizer,
             model,
@@ -219,11 +228,13 @@ class TransformersNERBackend:
             offsets,
             label_ids.detach().cpu().tolist(),
             confidences.detach().cpu().tolist(),
+            strict=True,
         ):
             for (start, end), label_id, confidence in zip(
                 window_offsets,
                 window_label_ids,
                 window_confidences,
+                strict=True,
             ):
                 if start == end:
                     continue

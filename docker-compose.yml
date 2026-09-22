@@ -9,6 +9,7 @@ services:
       BACKEND_URLS: http://backend-1:8000,http://backend-2:8000,http://backend-3:8000
       NER_ENABLED: ${NER_ENABLED:-false}
       NER_MODEL: ${NER_MODEL:-LLAIMlegal/ru-legal-ner}
+      NER_MODEL_REVISION: ${NER_MODEL_REVISION:-924a4b1912ec6e55a4be959cab215ad8ff32a750}
       NER_DEVICE: ${NER_DEVICE:-cpu}
       NER_MIN_CONFIDENCE: ${NER_MIN_CONFIDENCE:-0.80}
       NER_MAX_LENGTH: ${NER_MAX_LENGTH:-512}

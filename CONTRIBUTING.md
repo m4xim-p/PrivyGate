@@ -47,7 +47,14 @@
 - конфликт с другим detector;
 - masking/demasking round-trip.
 
-Запуск тестов:
+Полная merge-blocking проверка (lint, complexity, type checking, SAST,
+dependency audit и тесты):
+
+```bash
+./scripts/check.sh
+```
+
+Только тесты во время разработки:
 
 ```bash
 python -m pytest -q
@@ -60,7 +67,7 @@ p50/p95/p99, RPS, error rate и размером входа.
 ## Definition of Done
 
 - Код использует существующие точки расширения и не создаёт параллельную реализацию.
-- Релевантные и полные тесты проходят.
+- `./scripts/check.sh` проходит полностью.
 - Raw PII отсутствует в production logs и metrics.
 - Статус требования обновлён в `docs/requirements.md`.
 - Публичное поведение и ограничения описаны в README или профильном документе.

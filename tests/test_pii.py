@@ -1,9 +1,9 @@
 from app.pii import (
     DEFAULT_MASKING_CONFIDENCE,
     EmailDetector,
-    PIIMasker,
     PhoneDetector,
     PhoneDetectorConfig,
+    PIIMasker,
     StreamingDemasker,
     demask,
 )

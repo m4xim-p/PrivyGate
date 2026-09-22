@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from collections.abc import Callable
 
-from app.errors import ConflictError, GoneError, TooManyRequestsError
+from app.errors import ConflictError, TooManyRequestsError
 from app.pii_engine import PIIMaskingEngine
 from app.process_store import ProcessSession, ProcessStore, SessionState
 
@@ -76,7 +75,7 @@ class ProcessService:
         self,
         payload_id: str,
         future: asyncio.Future[str],
-        fingerprint: tuple[str, int],
+        fingerprint: str,
         length: int,
     ) -> str:
         session = await self.store.get(payload_id)
@@ -88,13 +87,13 @@ class ProcessService:
                 asyncio.shield(future), timeout=self._waiter_timeout
             )
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise TooManyRequestsError("waiter timed out", retry_after=1.0) from None
 
     def _resolve_existing(
         self,
         session: ProcessSession,
-        fingerprint: tuple[str, int],
+        fingerprint: str,
         length: int,
         payload_id: str,
     ) -> str:

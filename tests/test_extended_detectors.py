@@ -1,15 +1,15 @@
 from app.pii import (
     AddressDetector,
     BirthPlaceDetector,
-    CVVDetector,
     CardHolderDetector,
     CitizenshipDetector,
+    CVVDetector,
     DateOfBirthDetector,
     DrivingLicenseDetector,
-    PIIMasker,
     PassportAuthorityDetector,
     PassportIssueDateDetector,
     PassportUnitCodeDetector,
+    PIIMasker,
     PinCodeDetector,
     is_known_person,
 )

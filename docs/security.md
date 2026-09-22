@@ -44,7 +44,9 @@ demo с пользовательскими данными и production-like с�
 ## Локальный NER
 
 - Inference выполняется внутри контролируемого контура.
-- Checkpoint и revision должны быть закреплены.
+- Checkpoint и revision должны быть закреплены. Default revision задаётся константой,
+  передаётся в оба вызова `from_pretrained` и может быть осознанно заменена через
+  `NER_MODEL_REVISION`.
 - Модель загружается один раз на startup.
 - После подготовки model cache используются `HF_HUB_OFFLINE=1` и
   `TRANSFORMERS_OFFLINE=1`.
