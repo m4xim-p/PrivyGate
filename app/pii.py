@@ -341,6 +341,771 @@ def _digits(value: str) -> str:
     return "".join(character for character in value if character.isascii() and character.isdigit())
 
 
+# ---------------------------------------------------------------------------
+# Shared context scoring for text-anchored detectors.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class ContextConfig:
+    """Tunable rule weights for context-anchored PII detectors."""
+
+    context_window_chars: int = 64
+    distance_decay_power: float = 1.0
+    hard_context_boundaries: str = ",.;!?\n"
+    soft_context_boundaries: str = ":—–"
+    soft_boundary_multiplier: float = 0.75
+    strong_confidence: float = 0.99
+    weak_confidence: float = 0.55
+    positive_context_weights: Mapping[str, float] = field(default_factory=dict)
+    negative_context_weights: Mapping[str, float] = field(default_factory=dict)
+
+
+def _context_influence(
+    text: str,
+    start: int,
+    end: int,
+    phrase: str,
+    configured_weight: float,
+    config: ContextConfig,
+) -> float:
+    """Score how strongly a context phrase near [start, end) supports a match."""
+    strongest_influence = 0.0
+    normalized_text = text.casefold()
+    normalized_phrase = phrase.casefold()
+
+    for marker in re.finditer(re.escape(normalized_phrase), normalized_text):
+        if marker.end() <= start:
+            distance = start - marker.end()
+            between = text[marker.end() : start]
+        elif marker.start() >= end:
+            distance = marker.start() - end
+            between = text[end : marker.start()]
+        else:
+            continue
+
+        if distance > config.context_window_chars:
+            continue
+
+        boundary_multiplier = _boundary_multiplier(between, config)
+        if boundary_multiplier == 0.0:
+            continue
+
+        distance_ratio = distance / (config.context_window_chars + 1)
+        distance_multiplier = (1.0 - distance_ratio) ** config.distance_decay_power
+        influence = configured_weight * distance_multiplier * boundary_multiplier
+        strongest_influence = max(strongest_influence, influence)
+
+    return strongest_influence
+
+
+def _boundary_multiplier(between: str, config: ContextConfig) -> float:
+    if any(boundary in between for boundary in config.hard_context_boundaries):
+        return 0.0
+    if any(boundary in between for boundary in config.soft_context_boundaries):
+        return config.soft_boundary_multiplier
+    return 1.0
+
+
+def _context_confidence(
+    text: str,
+    start: int,
+    end: int,
+    config: ContextConfig,
+) -> float:
+    """Combine positive and negative context into a bounded confidence score."""
+    positive_adjustment = max(
+        (
+            _context_influence(text, start, end, phrase, weight, config)
+            for phrase, weight in config.positive_context_weights.items()
+        ),
+        default=0.0,
+    )
+    negative_adjustment = max(
+        (
+            _context_influence(text, start, end, phrase, weight, config)
+            for phrase, weight in config.negative_context_weights.items()
+        ),
+        default=0.0,
+    )
+    return min(
+        1.0,
+        max(
+            0.0,
+            config.weak_confidence + positive_adjustment - negative_adjustment,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Date of birth.
+# ---------------------------------------------------------------------------
+
+# Numeric dates: dd.mm.yyyy, mm.dd.yyyy, yyyy.mm.dd, yyyy.dd.mm with any of
+# . / - separators. The exact field order is validated against the calendar.
+DATE_NUMERIC_PATTERN = re.compile(
+    r"(?<![0-9])(?P<first>[0-9]{1,4})[./-](?P<second>[0-9]{1,2})[./-]"
+    r"(?P<third>[0-9]{2,4})(?![0-9])"
+)
+
+# Textual dates: "пятнадцатого марта 1990 года", "15 марта 1990 г."
+RUSSIAN_MONTHS = {
+    "января": 1, "февраля": 2, "марта": 3, "апреля": 4, "мая": 5, "июня": 6,
+    "июля": 7, "августа": 8, "сентября": 9, "октября": 10, "ноября": 11,
+    "декабря": 12,
+}
+RUSSIAN_DAY_WORDS = {
+    "первого": 1, "второго": 2, "третьего": 3, "четвертого": 4, "четвёртого": 4,
+    "пятого": 5, "шестого": 6, "седьмого": 7, "восьмого": 8, "девятого": 9,
+    "десятого": 10, "одиннадцатого": 11, "двенадцатого": 12, "тринадцатого": 13,
+    "четырнадцатого": 14, "пятнадцатого": 15, "шестнадцатого": 16,
+    "семнадцатого": 17, "восемнадцатого": 18, "девятнадцатого": 19,
+    "двадцатого": 20, "двадцать первого": 21, "двадцать второго": 22,
+    "двадцать третьего": 23, "двадцать четвертого": 24, "двадцать четвёртого": 24,
+    "двадцать пятого": 25, "двадцать шестого": 26, "двадцать седьмого": 27,
+    "двадцать восьмого": 28, "двадцать девятого": 29, "тридцатого": 30,
+    "тридцать первого": 31,
+}
+DATE_TEXT_PATTERN = re.compile(
+    r"(?<![а-яёa-z0-9])"
+    r"(?P<day>(?:двадцать\s+)?(?:первого|второго|третьего|четвертого|четвёртого|"
+    r"пятого|шестого|седьмого|восьмого|девятого|десятого|одиннадцатого|"
+    r"двенадцатого|тринадцатого|четырнадцатого|пятнадцатого|шестнадцатого|"
+    r"семнадцатого|восемнадцатого|девятнадцатого|двадцатого|тридцатого|"
+    r"тридцать\s+первого))"
+    r"\s+"
+    r"(?P<month>января|февраля|марта|апреля|мая|июня|июля|августа|сентября|"
+    r"октября|ноября|декабря)"
+    r"(?:\s+(?P<year>[0-9]{4}))?"
+    r"(?:\s+(?:года|г\.))?"
+    r"(?![а-яёa-z0-9])",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_valid_calendar_date(day: int, month: int, year: int) -> bool:
+    if not (1 <= month <= 12):
+        return False
+    if year < 1900 or year > 2100:
+        return False
+    if month in (1, 3, 5, 7, 8, 10, 12):
+        return 1 <= day <= 31
+    if month in (4, 6, 9, 11):
+        return 1 <= day <= 30
+    leap = (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
+    return 1 <= day <= (29 if leap else 28)
+
+
+class DateOfBirthDetector:
+    """Detect dates of birth in numeric and textual Russian formats."""
+
+    pii_type = "DATE_OF_BIRTH"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "дата рождения": 0.40,
+                "родился": 0.35,
+                "родилась": 0.35,
+                "день рождения": 0.35,
+                "дата выдачи": 0.40,
+                "выдан": 0.30,
+            },
+            negative_context_weights={
+                "срок действия": 0.55,
+                "действует до": 0.55,
+                "истекает": 0.55,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in DATE_NUMERIC_PATTERN.finditer(text):
+            parsed = self._parse_numeric(match)
+            if parsed is None:
+                continue
+            day, month, year = parsed
+            confidence = self._confidence(text, match.start(), match.end())
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        for match in DATE_TEXT_PATTERN.finditer(text):
+            day = RUSSIAN_DAY_WORDS.get(match.group("day").casefold())
+            month = RUSSIAN_MONTHS.get(match.group("month").casefold())
+            year_text = match.group("year")
+            year = int(year_text) if year_text else None
+            if day is None or month is None:
+                continue
+            if year is not None and not _is_valid_calendar_date(day, month, year):
+                continue
+            confidence = self._confidence(text, match.start(), match.end())
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+    @staticmethod
+    def _parse_numeric(match: re.Match[str]) -> tuple[int, int, int] | None:
+        first = int(match.group("first"))
+        second = int(match.group("second"))
+        third = int(match.group("third"))
+
+        # yyyy.mm.dd / yyyy.dd.mm
+        if first >= 1900:
+            if _is_valid_calendar_date(second, third, first):
+                return second, third, first
+            if _is_valid_calendar_date(third, second, first):
+                return third, second, first
+            return None
+
+        # dd.mm.yyyy / mm.dd.yyyy
+        if not (1900 <= third <= 2100):
+            return None
+        if _is_valid_calendar_date(first, second, third):
+            return first, second, third
+        if _is_valid_calendar_date(second, first, third):
+            return second, first, third
+        return None
+
+    def _confidence(self, text: str, start: int, end: int) -> float:
+        return _context_confidence(text, start, end, self.config)
+
+
+# ---------------------------------------------------------------------------
+# Birth place.
+# ---------------------------------------------------------------------------
+
+
+class BirthPlaceDetector:
+    """Detect a place of birth anchored by explicit context markers."""
+
+    pii_type = "BIRTH_PLACE"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "место рождения": 0.40,
+                "родился в": 0.35,
+                "родилась в": 0.35,
+                "родился в городе": 0.40,
+                "родилась в городе": 0.40,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        normalized = text.casefold()
+        for phrase in self.config.positive_context_weights:
+            for marker in re.finditer(re.escape(phrase.casefold()), normalized):
+                start = marker.end()
+                end = self._place_end(text, start)
+                if end <= start:
+                    continue
+                confidence = _context_confidence(
+                    text, start, end, self.config
+                )
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=text[start:end],
+                        start=start,
+                        end=end,
+                        confidence=confidence,
+                    )
+                )
+        return matches
+
+    @staticmethod
+    def _place_end(text: str, start: int) -> int:
+        end = start
+        while end < len(text) and text[end] not in ",.;!?\n":
+            end += 1
+        return end
+
+
+# ---------------------------------------------------------------------------
+# Citizenship.
+# ---------------------------------------------------------------------------
+
+
+class CitizenshipDetector:
+    """Detect citizenship anchored by explicit context markers."""
+
+    pii_type = "CITIZENSHIP"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "гражданство": 0.40,
+                "гражданин": 0.35,
+                "гражданка": 0.35,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        normalized = text.casefold()
+        for phrase in self.config.positive_context_weights:
+            for marker in re.finditer(re.escape(phrase.casefold()), normalized):
+                start = marker.end()
+                end = self._value_end(text, start)
+                if end <= start:
+                    continue
+                confidence = _context_confidence(text, start, end, self.config)
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=text[start:end],
+                        start=start,
+                        end=end,
+                        confidence=confidence,
+                    )
+                )
+        return matches
+
+    @staticmethod
+    def _value_end(text: str, start: int) -> int:
+        end = start
+        while end < len(text) and text[end] not in ",.;!?\n":
+            end += 1
+        return end
+
+
+# ---------------------------------------------------------------------------
+# Passport authority and unit code.
+# ---------------------------------------------------------------------------
+
+PASSPORT_UNIT_CODE_PATTERN = re.compile(
+    r"(?<![0-9])(?P<code>[0-9]{3}-[0-9]{3})(?![0-9])"
+)
+
+
+class PassportAuthorityDetector:
+    """Detect the authority that issued a passport."""
+
+    pii_type = "PASSPORT_AUTHORITY"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "кем выдан": 0.40,
+                "выдан": 0.30,
+                "орган, выдавший": 0.40,
+                "орган выдавший": 0.40,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        normalized = text.casefold()
+        for phrase in self.config.positive_context_weights:
+            for marker in re.finditer(re.escape(phrase.casefold()), normalized):
+                start = marker.end()
+                end = self._value_end(text, start)
+                if end <= start:
+                    continue
+                confidence = _context_confidence(text, start, end, self.config)
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=text[start:end],
+                        start=start,
+                        end=end,
+                        confidence=confidence,
+                    )
+                )
+        return matches
+
+    @staticmethod
+    def _value_end(text: str, start: int) -> int:
+        end = start
+        while end < len(text) and text[end] not in ",.;!?\n":
+            end += 1
+        return end
+
+
+class PassportUnitCodeDetector:
+    """Detect the passport unit code in the XXX-XXX format."""
+
+    pii_type = "PASSPORT_UNIT_CODE"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "код подразделения": 0.40,
+                "подразделение": 0.30,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in PASSPORT_UNIT_CODE_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
+class PassportIssueDateDetector:
+    """Detect the passport issue date anchored by context markers."""
+
+    pii_type = "PASSPORT_ISSUE_DATE"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "дата выдачи": 0.40,
+                "выдан": 0.30,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in DATE_NUMERIC_PATTERN.finditer(text):
+            parsed = DateOfBirthDetector._parse_numeric(match)
+            if parsed is None:
+                continue
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
+# ---------------------------------------------------------------------------
+# Driving license.
+# ---------------------------------------------------------------------------
+
+DRIVING_LICENSE_PATTERN = re.compile(
+    r"(?<![0-9])(?P<series>[0-9]{2}[ -]?[0-9]{2})"
+    r"[ \t]+(?P<number>[0-9]{6})(?![0-9])"
+)
+
+
+class DrivingLicenseDetector:
+    """Detect a Russian driving license series and number."""
+
+    pii_type = "DRIVING_LICENSE"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "водительское удостоверение": 0.40,
+                "водительские права": 0.40,
+                "права": 0.30,
+                "удостоверение": 0.30,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in DRIVING_LICENSE_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
+# ---------------------------------------------------------------------------
+# Address.
+# ---------------------------------------------------------------------------
+
+POSTAL_CODE_PATTERN = re.compile(r"(?<![0-9])[0-9]{6}(?![0-9])")
+
+
+class AddressDetector:
+    """Detect address components: postal code, city, street, house, apartment."""
+
+    pii_type = "ADDRESS"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "адрес": 0.40,
+                "проживает": 0.35,
+                "зарегистрирован": 0.35,
+                "зарегистрирована": 0.35,
+                "индекс": 0.40,
+                "город": 0.35,
+                "улица": 0.35,
+                "ул.": 0.35,
+                "дом": 0.30,
+                "квартира": 0.30,
+                "кв.": 0.30,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in POSTAL_CODE_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
+# ---------------------------------------------------------------------------
+# CVV and PIN.
+# ---------------------------------------------------------------------------
+
+CVV_PATTERN = re.compile(r"(?<![0-9])[0-9]{3}(?![0-9])")
+PIN_PATTERN = re.compile(r"(?<![0-9])[0-9]{4}(?![0-9])")
+
+
+class CVVDetector:
+    """Detect a card CVV code anchored by context markers."""
+
+    pii_type = "CVV"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "cvv": 0.45,
+                "cvc": 0.45,
+                "код безопасности": 0.40,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in CVV_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
+class PinCodeDetector:
+    """Detect a card PIN anchored by context markers."""
+
+    pii_type = "PIN"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "пин": 0.45,
+                "пин-код": 0.45,
+                "пин код": 0.45,
+                "pin": 0.45,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in PIN_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
+# ---------------------------------------------------------------------------
+# Card holder name.
+# ---------------------------------------------------------------------------
+
+CARD_HOLDER_PATTERN = re.compile(
+    r"(?<![A-Za-z])(?P<name>[A-Z]{2,}(?:[ -][A-Z]{2,})+)(?![A-Za-z])"
+)
+
+
+class CardHolderDetector:
+    """Detect a card holder name in the NAME SURNAME Latin format."""
+
+    pii_type = "CARD_HOLDER"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "cardholder": 0.45,
+                "card holder": 0.45,
+                "держатель карты": 0.40,
+                "имя держателя": 0.40,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in CARD_HOLDER_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
+# ---------------------------------------------------------------------------
+# Known-person suppression for NER PERSON matches.
+# ---------------------------------------------------------------------------
+
+KNOWN_PERSONS = frozenset(
+    {
+        "александр пушкин",
+        "пушкин",
+        "лев толстой",
+        "толстой",
+        "фёдор достоевский",
+        "достоевский",
+        "антон чехов",
+        "чехов",
+        "михаил лермонтов",
+        "лермонтов",
+        "николай гоголь",
+        "гоголь",
+        "сергей есенин",
+        "есенин",
+        "владимир маяковский",
+        "маяковский",
+        "иван бунин",
+        "бунин",
+        "александр блок",
+        "блок",
+        "марина цветаева",
+        "цветаева",
+        "анна ахматова",
+        "ахматова",
+        "борис пастернак",
+        "пастернак",
+        "иосиф бродский",
+        "бродский",
+        "михаил булгаков",
+        "булгаков",
+        "иван тургенев",
+        "тургенев",
+        "александр грибоедов",
+        "грибоедов",
+        "николай некрасов",
+        "некрасов",
+        "афанасий фет",
+        "фет",
+        "василий жуковский",
+        "жуковский",
+        "константин бальмонт",
+        "бальмонт",
+        "валерий брюсов",
+        "брюсов",
+        "андрей белый",
+        "белый",
+        "александр куприн",
+        "куприн",
+        "максим горький",
+        "горький",
+        "аркадий гайдар",
+        "гайдар",
+        "самуил маршак",
+        "маршак",
+        "корней чуковский",
+        "чуковский",
+        "алексей толстой",
+        "алексей толстой",
+        "михаил шолохов",
+        "шолохов",
+        "александр солженицын",
+        "солженицын",
+        "василий шукшин",
+        "шукшин",
+        "виктор астафьев",
+        "астафьев",
+        "валентин распутин",
+        "распутин",
+        "юрий олеша",
+        "олеша",
+        "илья ильф",
+        "ильф",
+        "евгений петров",
+        "петров",
+        "аркадий стругацкий",
+        "стругацкий",
+        "борис стругацкий",
+        "стругацкий",
+    }
+)
+
+
+def is_known_person(value: str) -> bool:
+    """Return True when a PERSON span refers to a well-known public figure."""
+    normalized = " ".join(value.casefold().split())
+    if normalized in KNOWN_PERSONS:
+        return True
+    return any(
+        normalized.endswith(surname) or normalized.startswith(surname)
+        for surname in KNOWN_PERSONS
+        if " " in surname
+    )
+
+
 # Conventional CapWords aliases remain convenient for callers that prefer them.
 SnilsDetector = SNILSDetector
 InnDetector = INNDetector
@@ -356,6 +1121,17 @@ def default_rule_detectors() -> tuple[PIIDetector, ...]:
         SNILSDetector(),
         INNDetector(),
         CardDetector(),
+        DateOfBirthDetector(),
+        BirthPlaceDetector(),
+        CitizenshipDetector(),
+        PassportAuthorityDetector(),
+        PassportUnitCodeDetector(),
+        PassportIssueDateDetector(),
+        DrivingLicenseDetector(),
+        AddressDetector(),
+        CVVDetector(),
+        PinCodeDetector(),
+        CardHolderDetector(),
     )
 
 

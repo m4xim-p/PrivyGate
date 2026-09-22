@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.pii import PIIMatch
+from app.pii import PIIMatch, is_known_person
 
 
 logger = logging.getLogger("privygate.ner")
@@ -92,10 +92,13 @@ class NERDetector:
                     end = group[-1][0].end
                     confidence = min(token.confidence for token, _ in group)
                     if confidence >= self._min_confidence:
+                        value = text[start:end]
+                        if is_known_person(value):
+                            continue
                         entities.append(
                             PIIMatch(
                                 pii_type=self.pii_type,
-                                value=text[start:end],
+                                value=value,
                                 start=start,
                                 end=end,
                                 confidence=confidence,
