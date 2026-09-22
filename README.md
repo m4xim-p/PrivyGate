@@ -97,7 +97,8 @@ curl -N http://localhost:8000/v1/chat/completions \
 ## Контракт `/process`
 
 Обязательный эндпоинт для автоматической проверки AlfaSonar. Маскирование и
-демаскирование коррелируются по `payload_id`:
+демаскирование коррелируются по `payload_id`. Полная OpenAPI-спецификация —
+[`process_api.yaml`](process_api.yaml).
 
 ```bash
 # Маскирование (первый запрос с новым payload_id)

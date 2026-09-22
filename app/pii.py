@@ -1106,19 +1106,29 @@ class NameDetector:
         matches: list[PIIMatch] = []
         for candidate in NAME_CANDIDATE_PATTERN.finditer(text):
             tokens = candidate.group(0).split()
-            if not self._is_full_name(tokens):
-                continue
-            if is_known_person(candidate.group(0)):
-                continue
-            matches.append(
-                PIIMatch(
-                    pii_type=self.pii_type,
-                    value=candidate.group(0),
-                    start=candidate.start(),
-                    end=candidate.end(),
-                    confidence=self._confidence,
-                )
-            )
+            # Prefer the longest full-name span inside the candidate run.
+            for length in (3, 2):
+                for start in range(len(tokens) - length + 1):
+                    span = tokens[start : start + length]
+                    if not self._is_full_name(span):
+                        continue
+                    value = " ".join(span)
+                    if is_known_person(value):
+                        continue
+                    offset = candidate.start() + candidate.group(0).index(value)
+                    matches.append(
+                        PIIMatch(
+                            pii_type=self.pii_type,
+                            value=value,
+                            start=offset,
+                            end=offset + len(value),
+                            confidence=self._confidence,
+                        )
+                    )
+                    break
+                else:
+                    continue
+                break
         return matches
 
     @staticmethod

@@ -15,6 +15,15 @@ def test_detects_full_name_first_last() -> None:
     assert PIIMasker().mask(text) == "Меня зовут __PII_PERSON_1__"
 
 
+def test_detects_full_name_after_leading_word() -> None:
+    """A full name preceded by a capitalized word must still be detected."""
+    text = "Клиент Иванов Иван Иванович"
+    match = NameDetector().detect(text)[0]
+
+    assert match.value == "Иванов Иван Иванович"
+    assert PIIMasker().mask(text) == "Клиент __PII_PERSON_1__"
+
+
 def test_detects_full_name_last_first_patronymic() -> None:
     text = "Петров Иван Иванович"
     match = NameDetector().detect(text)[0]

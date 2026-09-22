@@ -26,6 +26,7 @@ class ProcessSession:
     pii_count: int
     pii_types: list[str]
     completed_at: float | None = None
+    session_bytes: int = 0
 
 
 @dataclass(slots=True)
@@ -49,6 +50,10 @@ class ProcessStore:
     The store holds only original/masked/timestamps/state/diagnostics. Mapping
     never lives here: it exists only transiently inside the masking engine.
     """
+
+    # Approximate per-session overhead (dict entry, dataclass, payload_id,
+    # pii_types list, etc.) used to bound real memory usage.
+    SESSION_OVERHEAD_BYTES = 512
 
     def __init__(
         self,
@@ -124,6 +129,12 @@ class ProcessStore:
         async with self._lock:
             pending = self._pending.pop(payload_id, None)
             now = self._time()
+            session_bytes = (
+                len(original.encode("utf-8"))
+                + len(masked.encode("utf-8"))
+                + len(payload_id.encode("utf-8"))
+                + self.SESSION_OVERHEAD_BYTES
+            )
             self._sessions[payload_id] = ProcessSession(
                 original=original,
                 masked=masked,
@@ -132,9 +143,11 @@ class ProcessStore:
                 last_accessed_at=now,
                 pii_count=pii_count,
                 pii_types=pii_types,
+                session_bytes=session_bytes,
             )
             if pending is not None:
                 self.current_bytes -= pending.reserved_bytes
+            self.current_bytes += session_bytes
 
     async def complete(self, payload_id: str) -> None:
         async with self._lock:
@@ -194,7 +207,9 @@ class ProcessStore:
             if start + ttl <= now:
                 expired_ids.append(payload_id)
         for payload_id in expired_ids:
-            self._sessions.pop(payload_id, None)
+            session = self._sessions.pop(payload_id, None)
+            if session is not None:
+                self.current_bytes -= session.session_bytes
             self._tombstones[payload_id] = now + self._tombstone_ttl
             self._trim_tombstones_locked()
 
