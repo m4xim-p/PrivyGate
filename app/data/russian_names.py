@@ -1,123 +1,70 @@
-"""Local dataset of Russian first names, surnames and patronymics.
+"""Russian names dataset for rule-based ФИО detection.
 
-This module is a dependency-free, offline dataset used by the rule-based
-``NameDetector`` to recognise Russian full names without invoking the NER
-model.
+The primary source is ``russian_names_full_99.py``: a unified set of Russian
+first names, patronymics and surnames with 99% coverage of the UCP2 golden
+individuals, grouped into frequency tiers (HOT / MID / TAIL).
 
-The primary source is the downloaded raw dataset in ``app/data/raw/`` (see
-``loader.py`` for sources and licensing). When the raw files are absent, the
-module falls back to a small curated list so the package still works in a
-minimal checkout.
+This module normalises the tiered sets to lowercase and exposes them for the
+``NameDetector``, which checks HOT first, then MID, then TAIL, and only falls
+through to NER when no tier matches. When the full dataset file is absent, a
+small curated fallback keeps the package importable.
 """
 
-from app.data.loader import load_first_names, load_patronymics, load_surnames
+from __future__ import annotations
 
-# Curated fallback lists, used only when the raw dataset files are missing.
-_CURATED_FIRST_NAMES = frozenset(
-    {
-        # Male
-        "александр", "алексей", "андрей", "антон", "аркадий", "артём", "артем",
-        "артур", "афанасий", "богдан", "борис", "вадим", "валентин", "валерий",
-        "василий", "виктор", "виталий", "владимир", "владислав", "всеволод",
-        "вячеслав", "генадий", "генадiй", "генадий", "георгий", "герман",
-        "глеб", "григорий", "даниил", "данил", "данила", "денис", "дмитрий",
-        "евгений", "егор", "иван", "игорь", "илья", "иннокентий", "иосиф",
-        "кирилл", "константин", "лев", "леонид", "макар", "максим", "марк",
-        "матвей", "михаил", "николай", "олег", "павел", "пётр", "петр",
-        "прокофий", "родion", "роман", "руслан", "святослав", "семён", "семен",
-        "сергей", "станислав", "степан", "тимофей", "тимур", "трофим", "фёдор",
-        "федор", "филипп", "эдуард", "юрий", "яков", "ян",
-        # Female
-        "александра", "алина", "алла", "анастасия", "ангелина", "анна",
-        "антонина", "валентина", "валерия", "василиса", "вера", "вероника",
-        "виктория", "галина", "дарья", "евгения", "екатерина", "елена",
-        "елизавета", "жанна", "зинаида", "зоя", "ирина", "карина", "кира",
-        "клавдия", "ксения", "лариса", "лидия", "любовь", "людмила", "майя",
-        "маргарита", "марина", "мария", "надежда", "наталья", "нина", "оксана",
-        "ольга", "полина", "раиса", "светлана", "софья", "софия", "таисия",
-        "тамара", "татьяна", "ульяна", "юлия", "яна",
-    }
-)
-
-_CURATED_SURNAMES = frozenset(
-    {
-        "абрамов", "авдеев", "агеев", "акимов", "александров", "алексеев",
-        "андреев", "анисимов", "антонов", "артемьев", "архипов", "афанасьев",
-        "баранов", "белов", "белозёров", "беляев", "беляков", "березин",
-        "богданов", "бондарев", "бородин", "быков", "васильев", "веселов",
-        "виноградов", "вишняков", "владимиров", "волков", "воробьёв",
-        "воробьев", "воронов", "гаврилов", "галкин", "герасимов", "голубев",
-        "гончаров", "горбачёв", "горбачев", "гордеев", "горшков", "григорьев",
-        "гришин", "гусев", "давыдов", "данилов", "дементьев", "денисов",
-        "дмитриев", "дорофеев", "дроздов", "егоров", "ефимов", "ефремов",
-        "жаров", "жиров", "жуков", "журавлёв", "журавлев", "зайцев", "захаров",
-        "зверев", "зеленин", "золотов", "зуев", "иванов", "игнатьев", "ильин",
-        "исаев", "казаков", "калашников", "калинин", "капустин", "карпов",
-        "киселёв", "киселев", "князев", "ковалёв", "ковалев", "козлов",
-        "колесников", "колобов", "колпаков", "комаров", "кондратьев",
-        "кононов", "константинов", "копылов", "королёв", "королев", "костылев",
-        "котов", "кошелев", "красильников", "крюков", "кудрявцев", "кузнецов",
-        "кузьмин", "кулагин", "куликов", "лазарев", "лапин", "ларионов",
-        "лебедев", "леонов", "лихачёв", "лихачев", "лобанов", "логинов",
-        "лукин", "лыков", "макаров", "максимов", "мальцев", "марков",
-        "мартынов", "маслов", "матвеев", "медведев", "мельников", "меркулов",
-        "миронов", "михайлов", "мишин", "моисеев", "молчанов", "морозов",
-        "муравьёв", "муравьев", "мышков", "назаров", "наумов", "некрасов",
-        "нестеров", "никитин", "николаев", "никонов", "новиков", "носов",
-        "обухов", "овчинников", "озеров", "орлов", "осипов", "павлов",
-        "панов", "панфилов", "пастухов", "пахомов", "перов", "петров",
-        "петухов", "пименов", "платонов", "плотников", "поздняков", "покровский",
-        "поляков", "пономарёв", "пономарев", "попов", "потапов", "прохоров",
-        "пчёлкин", "пчелкин", "родионов", "рожков", "романов", "русаков",
-        "рыбаков", "рыжов", "савельев", "савин", "самсонов", "сафонов",
-        "свешников", "селезнёв", "селезнев", "семёнов", "семенов", "сергеев",
-        "сидоров", "симаков", "синицын", "смирнов", "соболев", "соколов",
-        "соловьёв", "соловьев", "сорокин", "софронов", "старостин", "степанов",
-        "суворов", "суханов", "сычёв", "сычев", "тарасов", "терехов", "тимофеев",
-        "титов", "тихонов", "токарев", "толмачёв", "толмачев", "третьяков",
-        "трофимов", "тургенев", "уваров", "устинов", "фёдоров", "федоров",
-        "федосеев", "филатов", "филиппов", "фомин", "фролов", "харитонов",
-        "цветков", "чернов", "чернышёв", "чернышев", "чехов", "шаров",
-        "шестаков", "шилов", "ширяев", "шубин", "щукин", "юдин", "яковлев",
-        "якушев", "яшин",
-    }
-)
-
-_CURATED_PATRONYMICS = frozenset(
-    {
-        "александрович", "александровна", "алексеевич", "алексеевна",
-        "андреевич", "андреевна", "антонович", "антоновна", "аркадьевич",
-        "аркадьевна", "артёмович", "артемович", "артёмовна", "артемовна",
-        "борисович", "борисовна", "вадимович", "вадимовна", "валентинович",
-        "валентиновна", "валерьевич", "валерьевна", "васильевич", "васильевна",
-        "викторович", "викторовна", "витальевич", "витальевна", "владимирович",
-        "владимировна", "владиславович", "владиславовна", "вячеславович",
-        "вячеславовна", "геннадьевич", "геннадьевна", "георгиевич", "георгиевна",
-        "григорьевич", "григорьевна", "данилович", "даниловна", "денисович",
-        "денисовна", "дмитриевич", "дмитриевна", "евгеньевич", "евгеньевна",
-        "егорович", "егоровна", "иванович", "ивановна", "игоревич", "игоревна",
-        "ильич", "ильинична", "иосифович", "иосифовна", "кириллович",
-        "кирилловна", "константинович", "константиновна", "леонидович",
-        "леонидовна", "львович", "львовна", "макарович", "макаровна",
-        "максимович", "максимовна", "маркович", "марковна", "матвеевич",
-        "матвеевна", "михайлович", "михайловна", "николаевич", "николаевна",
-        "олегович", "олеговна", "павлович", "павловна", "петрович", "петровна",
-        "романович", "романовна", "русланович", "руслановна", "семёнович",
-        "семенович", "семёновна", "семеновна", "сергеевич", "сергеевна",
-        "станиславович", "станиславовна", "степанович", "степановна",
-        "тимофеевич", "тимофеевна", "тимурович", "тимуровна", "фёдорович",
-        "федорович", "фёдоровна", "федоровна", "филиппович", "филипповна",
-        "эдуардович", "эдуардовна", "юрьевич", "юрьевна", "яковлевич",
-        "яковлевна",
-    }
-)
+try:
+    from app.data.russian_names_full_99 import (
+        HOT_FIRST_NAMES,
+        HOT_PATRONYMICS,
+        HOT_SURNAMES,
+        MID_FIRST_NAMES,
+        MID_PATRONYMICS,
+        MID_SURNAMES,
+        TAIL_FIRST_NAMES,
+        TAIL_PATRONYMICS,
+        TAIL_SURNAMES,
+    )
+    _HAS_FULL = True
+except ImportError:
+    _HAS_FULL = False
 
 
-def _merge(loaded: set[str], curated: frozenset[str]) -> frozenset[str]:
-    """Prefer the loaded dataset, falling back to the curated list."""
-    return frozenset(loaded) if loaded else curated
+def _norm(values: frozenset[str]) -> frozenset[str]:
+    return frozenset(value.casefold() for value in values)
 
 
-FIRST_NAMES = _merge(load_first_names(), _CURATED_FIRST_NAMES)
-SURNAMES = _merge(load_surnames(), _CURATED_SURNAMES)
-PATRONYMICS = _merge(load_patronymics(), _CURATED_PATRONYMICS)
+if _HAS_FULL:
+    HOT_FIRST = _norm(HOT_FIRST_NAMES)
+    MID_FIRST = _norm(MID_FIRST_NAMES)
+    TAIL_FIRST = _norm(TAIL_FIRST_NAMES)
+
+    HOT_SURNAME = _norm(HOT_SURNAMES)
+    MID_SURNAME = _norm(MID_SURNAMES)
+    TAIL_SURNAME = _norm(TAIL_SURNAMES)
+
+    HOT_PATRONYMIC = _norm(HOT_PATRONYMICS)
+    MID_PATRONYMIC = _norm(MID_PATRONYMICS)
+    TAIL_PATRONYMIC = _norm(TAIL_PATRONYMICS)
+else:
+    # Minimal fallback so the package imports without the full dataset.
+    HOT_FIRST = frozenset({"иван", "александр", "сергей", "мария", "анна"})
+    MID_FIRST = frozenset()
+    TAIL_FIRST = frozenset()
+
+    HOT_SURNAME = frozenset({"иванов", "петров", "смирнов", "кузнецов"})
+    MID_SURNAME = frozenset()
+    TAIL_SURNAME = frozenset()
+
+    HOT_PATRONYMIC = frozenset({"иванович", "ивановна", "петрович", "петровна"})
+    MID_PATRONYMIC = frozenset()
+    TAIL_PATRONYMIC = frozenset()
+
+# Merged flat sets for callers that do not need tiering.
+FIRST_NAMES = HOT_FIRST | MID_FIRST | TAIL_FIRST
+SURNAMES = HOT_SURNAME | MID_SURNAME | TAIL_SURNAME
+PATRONYMICS = HOT_PATRONYMIC | MID_PATRONYMIC | TAIL_PATRONYMIC
+
+# Ordered tiers: HOT first, then MID, then TAIL.
+FIRST_NAME_TIERS = (HOT_FIRST, MID_FIRST, TAIL_FIRST)
+SURNAME_TIERS = (HOT_SURNAME, MID_SURNAME, TAIL_SURNAME)
+PATRONYMIC_TIERS = (HOT_PATRONYMIC, MID_PATRONYMIC, TAIL_PATRONYMIC)

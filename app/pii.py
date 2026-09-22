@@ -5,7 +5,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from app.data.russian_names import FIRST_NAMES, PATRONYMICS, SURNAMES
+from app.data.russian_names import (
+    FIRST_NAME_TIERS,
+    FIRST_NAMES,
+    PATRONYMIC_TIERS,
+    PATRONYMICS,
+    SURNAME_TIERS,
+    SURNAMES,
+)
 
 
 EMAIL_PATTERN = re.compile(
@@ -1363,30 +1370,53 @@ class NameDetector:
         matches: list[PIIMatch] = []
         for candidate in NAME_CANDIDATE_PATTERN.finditer(text):
             tokens = candidate.group(0).split()
-            # Prefer the longest full-name span inside the candidate run.
+            # Collect all valid full-name spans and pick the best one.
+            best: tuple[int, int, int] | None = None  # (score, tier, start)
             for length in (3, 2):
                 for start in range(len(tokens) - length + 1):
                     span = tokens[start : start + length]
-                    if not self._is_full_name(span):
+                    tier = self._is_full_name(span)
+                    if tier is None:
                         continue
                     value = " ".join(span)
                     if is_known_person(value):
                         continue
-                    offset = candidate.start() + candidate.group(0).index(value)
-                    matches.append(
-                        PIIMatch(
-                            pii_type=self.pii_type,
-                            value=value,
-                            start=offset,
-                            end=offset + len(value),
-                            confidence=self._confidence,
-                        )
-                    )
-                    break
-                else:
-                    continue
-                break
+                    score = self._span_score(span, tier)
+                    if best is None or score > best[0]:
+                        best = (score, tier, start)
+            if best is None:
+                continue
+            _, tier, start = best
+            span = tokens[start : start + (3 if len(tokens) - start >= 3 else 2)]
+            value = " ".join(span)
+            offset = candidate.start() + candidate.group(0).index(value)
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=value,
+                    start=offset,
+                    end=offset + len(value),
+                    confidence=self._tier_confidence(tier),
+                )
+            )
+        matches.extend(self._latin_name_matches(text))
         return matches
+
+    @staticmethod
+    def _span_score(span: Sequence[str], tier: int) -> int:
+        """Score a full-name span: prefer proper ФИО (with patronymic) and HOT tier."""
+        lowered = [token.casefold() for token in span]
+        has_patronymic = any(
+            _patronymic_tier(token) is not None for token in lowered
+        )
+        # Proper ФИО (3 tokens with a patronymic) scores highest, then 2-token
+        # names, then lower tiers.
+        return (3 if len(span) == 3 and has_patronymic else 2 if len(span) == 2 else 1) * 10 + (3 - tier)
+
+    @staticmethod
+    def _tier_confidence(tier: int) -> float:
+        """Confidence by tier: HOT is most confident, TAIL least."""
+        return (0.99, 0.95, 0.88)[tier]
 
     def _latin_name_matches(self, text: str) -> list[PIIMatch]:
             """Detect transliterated/English full names.
@@ -1426,44 +1456,93 @@ class NameDetector:
             return matches
 
     @staticmethod
-    def _is_full_name(tokens: Sequence[str]) -> bool:
-        """Return True when a token run looks like a Russian full name."""
+    def _is_full_name(tokens: Sequence[str]) -> int | None:
+        """Return the tier index (0=HOT, 1=MID, 2=TAIL) of a full-name match.
+
+        Returns None when the token run is not a Russian full name. The tier
+        reflects the least-common component: a name is only as confident as its
+        rarest part, so the detector checks HOT first, then MID, then TAIL.
+        """
         if not tokens:
-            return False
+            return None
         lowered = [token.casefold() for token in tokens]
 
         # Single token: only a surname or a first name is too weak alone.
         if len(lowered) == 1:
-            return False
+            return None
 
         # Two tokens: "Имя Фамилия" or "Фамилия Имя".
         if len(lowered) == 2:
             first, second = lowered
-            return (first in FIRST_NAMES and _is_surname(second)) or (
-                _is_surname(first) and second in FIRST_NAMES
-            )
+            return _full_name_tier(first, second)
 
         # Three tokens: "Фамилия Имя Отчество" or "Имя Отчество Фамилия".
         if len(lowered) == 3:
             a, b, c = lowered
-            if _is_surname(a) and b in FIRST_NAMES and c in PATRONYMICS:
-                return True
-            if a in FIRST_NAMES and b in PATRONYMICS and _is_surname(c):
-                return True
-            return False
+            return _full_name_tier_three(a, b, c)
 
         # Four tokens: "Фамилия Имя Отчество" plus an extra token is unlikely.
-        return False
+        return None
+
+
+def _first_name_tier(token: str) -> int | None:
+    """Return the tier index (0=HOT, 1=MID, 2=TAIL) of a first name, or None."""
+    for tier, names in enumerate(FIRST_NAME_TIERS):
+        if token in names:
+            return tier
+    return None
+
+
+def _surname_tier(token: str) -> int | None:
+    """Return the tier index of a surname (handling feminine -а/-я forms)."""
+    for tier, surnames in enumerate(SURNAME_TIERS):
+        if token in surnames:
+            return tier
+        # Feminine surnames usually end in -а/-я (Смирнова, Иванова).
+        if token.endswith(("а", "я")) and token[:-1] in surnames:
+            return tier
+    return None
+
+
+def _patronymic_tier(token: str) -> int | None:
+    """Return the tier index of a patronymic, or None."""
+    for tier, patronymics in enumerate(PATRONYMIC_TIERS):
+        if token in patronymics:
+            return tier
+    return None
+
+
+def _full_name_tier(first: str, second: str) -> int | None:
+    """Tier of a two-token name: "Имя Фамилия" or "Фамилия Имя"."""
+    first_tier = _first_name_tier(first)
+    second_tier = _surname_tier(second)
+    if first_tier is not None and second_tier is not None:
+        return max(first_tier, second_tier)
+    first_tier = _surname_tier(first)
+    second_tier = _first_name_tier(second)
+    if first_tier is not None and second_tier is not None:
+        return max(first_tier, second_tier)
+    return None
+
+
+def _full_name_tier_three(a: str, b: str, c: str) -> int | None:
+    """Tier of a three-token name: "Фамилия Имя Отчество" or "Имя Отчество Фамилия"."""
+    a_tier = _surname_tier(a)
+    b_tier = _first_name_tier(b)
+    c_tier = _patronymic_tier(c)
+    if a_tier is not None and b_tier is not None and c_tier is not None:
+        return max(a_tier, b_tier, c_tier)
+    a_tier = _first_name_tier(a)
+    b_tier = _patronymic_tier(b)
+    c_tier = _surname_tier(c)
+    if a_tier is not None and b_tier is not None and c_tier is not None:
+        return max(a_tier, b_tier, c_tier)
+    return None
 
 
 def _is_surname(token: str) -> bool:
     """Return True for a masculine or feminine Russian surname form."""
-    if token in SURNAMES:
-        return True
-    # Feminine surnames usually end in -а/-я (Смирнова, Иванова, Кузнецова).
-    if token.endswith(("а", "я")) and token[:-1] in SURNAMES:
-        return True
-    return False
+    return _surname_tier(token) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1555,15 +1634,59 @@ KNOWN_PERSONS = frozenset(
 
 
 def is_known_person(value: str) -> bool:
-    """Return True when a PERSON span refers to a well-known public figure."""
+    """Return True when a PERSON span refers to a well-known public figure.
+
+    Handles exact matches, inflected forms (genitive/dative/etc.), and names
+    with a patronymic (e.g. "Александр Сергеевич Пушкин"). A two-token name is
+    only suppressed when its base form matches a known person's full name, so
+    common names like "Иван Петров" are not over-suppressed.
+    """
     normalized = " ".join(value.casefold().split())
     if normalized in KNOWN_PERSONS:
         return True
-    return any(
-        normalized.endswith(surname) or normalized.startswith(surname)
-        for surname in KNOWN_PERSONS
-        if " " in surname
+
+    tokens = normalized.split()
+    if not tokens:
+        return False
+
+    # Three or more tokens: a known surname with a patronymic is a famous
+    # person, but only when every token is a valid name component (so a
+    # suspicious NER run like "Иван Петров Позвони Ивану" is not suppressed).
+    if len(tokens) >= 3:
+        surname = _strip_case_ending(tokens[-1])
+        if surname in KNOWN_PERSONS and all(
+            _is_name_component(token) for token in tokens
+        ):
+            return True
+        return False
+
+    # Two tokens: suppress only when the base (de-inflected) full name matches.
+    if len(tokens) == 2:
+        base_full = " ".join(_strip_case_ending(token) for token in tokens)
+        return base_full in KNOWN_PERSONS
+
+    # Single token: a known surname alone is a famous person.
+    return _strip_case_ending(tokens[0]) in KNOWN_PERSONS
+
+
+def _is_name_component(token: str) -> bool:
+    """Return True when a token is a plausible Russian name component."""
+    return (
+        _first_name_tier(token) is not None
+        or _surname_tier(token) is not None
+        or _patronymic_tier(token) is not None
     )
+
+
+_CASE_ENDINGS = ("ого", "ему", "ым", "им", "ом", "ой", "а", "у", "е", "ы")
+
+
+def _strip_case_ending(token: str) -> str:
+    """Return the nominative base of an inflected Russian surname."""
+    for ending in _CASE_ENDINGS:
+        if token.endswith(ending) and len(token) - len(ending) >= 3:
+            return token[: -len(ending)]
+    return token
 
 
 # Conventional CapWords aliases remain convenient for callers that prefer them.

@@ -52,7 +52,7 @@ def test_single_name_is_not_detected() -> None:
 
 
 def test_unknown_name_is_not_detected() -> None:
-    text = "Квинт Вергилий"
+    text = "Квазимодо Гэндальф"
 
     assert NameDetector().detect(text) == []
 

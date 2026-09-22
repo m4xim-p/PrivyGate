@@ -3,30 +3,20 @@
 Offline dataset used by the rule-based `NameDetector` to recognise Russian
 full names (ФИО) without invoking the NER model.
 
-## Sources
+## Files
 
-| File | Source | License |
-|---|---|---|
-| `raw/russian_surnames.txt` | [sorokinpf/russian_names](https://github.com/sorokinpf/russian_names) | — |
-| `raw/russian_male_names.txt` | [sorokinpf/russian_names](https://github.com/sorokinpf/russian_names) | — |
-| `raw/russian_female_names.txt` | [sorokinpf/russian_names](https://github.com/sorokinpf/russian_names) | — |
-| `raw/midnames.jsonl` | [sorokinpf/russian_names](https://github.com/sorokinpf/russian_names) | — |
-| `raw/raw_names.csv` | [mdanina/nen-imena-dataset](https://github.com/mdanina/nen-imena-dataset) | CC BY 4.0 |
+| File | Purpose |
+|---|---|
+| `russian_names_full_99.py` | Primary dataset: Russian first names, patronymics and surnames with 99% coverage of the UCP2 golden individuals, grouped into HOT / MID / TAIL frequency tiers. |
+| `russian_names.py` | Single public module: normalises the tiered sets to lowercase and exposes `FIRST_NAMES`, `SURNAMES`, `PATRONYMICS` plus the ordered tier tuples. Falls back to a minimal curated list when the full dataset is absent. |
 
-## Attribution
+## Tiered detection
 
-The first-name data from `raw/raw_names.csv` is derived from the НЭН «Имена»
-catalogue: **Данные: НЭН — сервис «Имена», [n-e-n.ru/imena](https://n-e-n.ru/imena/)**
-(CC BY 4.0).
-
-## Loading
-
-`loader.py` reads the raw files at import time, lowercases and deduplicates
-the values, and filters out non-Cyrillic noise. `russian_names.py` exposes the
-consolidated `FIRST_NAMES`, `SURNAMES` and `PATRONYMICS` sets, falling back to
-a small curated list when the raw files are absent.
+The `NameDetector` checks HOT first, then MID, then TAIL, and only falls
+through to NER when no tier matches. Confidence depends on the tier: HOT is
+most confident, TAIL least.
 
 ## Refreshing
 
-To refresh the dataset, re-download the files from the sources above into
-`raw/` and re-run the tests.
+To refresh the dataset, replace `russian_names_full_99.py` with the updated
+file and re-run the tests.
