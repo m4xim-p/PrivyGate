@@ -24,7 +24,7 @@ Roadmap отражает порядок работ, но не заменяет �
   concurrency tests.
 - [x] Admission control, `429` и `Retry-After`.
 - [x] Safe logs без payload/mapping.
-- [ ] Раздельная валидация payload bytes и estimated tokens без допущения «100k = 400 КБ».
+- [x] Раздельная валидация payload bytes и estimated tokens без допущения «100k = 400 КБ».
 - [x] OpenAPI-спецификация `process_api.yaml` из Приложения A.
 - [ ] Автоматический drift test между `process_api.yaml`, FastAPI schema и contract models.
 - [x] README curl examples.
