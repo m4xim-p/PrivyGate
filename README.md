@@ -77,6 +77,24 @@ curl -N http://localhost:8000/v1/chat/completions \
 Повторные запросы последовательно попадут в backend-1, backend-2, backend-3 и
 снова backend-1. Проверка здоровья: `curl http://localhost:8000/health`.
 
+### Dev-only просмотр полного запроса к mock backend
+
+Для ручной проверки masking на синтетических данных можно явно включить полный
+лог тела запроса, полученного mock backend:
+
+```bash
+MOCK_LOG_REQUEST_BODY=true NER_ENABLED=true docker compose up --build
+```
+
+В backend-логах появится строка `DEV_ONLY ... request_body=...`. Этот режим
+может записать незамаскированные PII, если detector их пропустил, поэтому он
+выключен по умолчанию и не должен использоваться с реальными данными или в
+production. Для просмотра только backend-логов:
+
+```bash
+docker compose logs -f backend-1 backend-2 backend-3
+```
+
 ## Тесты
 
 ```bash

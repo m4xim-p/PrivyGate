@@ -31,6 +31,7 @@ services:
       BACKEND_ID: backend-1
       CHUNK_SIZE: ${CHUNK_SIZE:-12}
       CHUNK_DELAY_SECONDS: ${CHUNK_DELAY_SECONDS:-0.2}
+      MOCK_LOG_REQUEST_BODY: ${MOCK_LOG_REQUEST_BODY:-false}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 3s
@@ -43,6 +44,7 @@ services:
       BACKEND_ID: backend-2
       CHUNK_SIZE: ${CHUNK_SIZE:-12}
       CHUNK_DELAY_SECONDS: ${CHUNK_DELAY_SECONDS:-0.2}
+      MOCK_LOG_REQUEST_BODY: ${MOCK_LOG_REQUEST_BODY:-false}
 
   backend-3:
     <<: *backend
@@ -50,3 +52,4 @@ services:
       BACKEND_ID: backend-3
       CHUNK_SIZE: ${CHUNK_SIZE:-12}
       CHUNK_DELAY_SECONDS: ${CHUNK_DELAY_SECONDS:-0.2}
+      MOCK_LOG_REQUEST_BODY: ${MOCK_LOG_REQUEST_BODY:-false}

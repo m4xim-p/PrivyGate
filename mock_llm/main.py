@@ -1,6 +1,7 @@
 """Configurable mock backend used as three independent service instances."""
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -30,6 +31,10 @@ logging.basicConfig(
 logger = logging.getLogger("privygate.mock_llm")
 email_detector = EmailDetector()
 phone_detector = PhoneDetector()
+
+
+def _env_enabled(name: str) -> bool:
+    return os.getenv(name, "false").casefold() in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +91,17 @@ async def chat_completions(body: ChatCompletionRequest):
         str(diagnostics.raw_phone_detected).lower(),
         CHUNK_SIZE,
     )
+    if _env_enabled("MOCK_LOG_REQUEST_BODY"):
+        request_body = json.dumps(
+            body.model_dump(mode="json", exclude_none=True),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        logger.warning(
+            "DEV_ONLY full_request_logging_enabled backend_id=%s request_body=%s",
+            BACKEND_ID,
+            request_body,
+        )
 
     user_messages = [message.content for message in body.messages if message.role == "user"]
     prompt = user_messages[-1] if user_messages else ""
