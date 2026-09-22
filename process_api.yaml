@@ -1,0 +1,82 @@
+openapi: 3.0.3
+info:
+  title: Модуль безопасности ПД — контракт /process
+  version: "1.0.0"
+  description: |
+    Единый контракт, который команды-участники ДОЛЖНЫ реализовать на своём сервисе.
+    Система проверки AlfaSonar обращается к этому эндпоинту для нагрузочного
+    тестирования и оценки точности маскирования/демаскирования персональных данных.
+
+    ВАЖНО (логика проверки одинакова для всех команд):
+    * Эндпоинт один — `POST /process`. Он обрабатывает и маскирование, и демаскирование.
+    * Проверка идёт парами по каждому элементу датасета и коррелируется полем `payload_id`:
+      1) ПРЯМАЯ проверка (маскирование): приходит первый запрос с новым `payload_id`,
+         `payload` = исходная строка. Сервис ДОЛЖЕН вернуть замаскированную строку и
+         запомнить соответствие по `payload_id`.
+      2) ОБРАТНАЯ проверка (демаскирование): приходит второй запрос с ТЕМ ЖЕ `payload_id`,
+         `payload` = ранее возвращённая вами замаскированная строка. Сервис ДОЛЖЕН вернуть
+         исходную (демаскированную) строку.
+    * `payload_id` уникален для каждого элемента в рамках прогона — используйте его как ключ
+      корреляции «маскирование → демаскирование».
+    * Ответ всегда: `{"result": "<строка>"}`.
+servers:
+  - url: https://your-solution.example.com
+    description: HTTPS (self-signed допускается — проверка идёт с ssl_verify=false)
+  - url: http://your-solution.example.com
+    description: HTTP также поддерживается
+paths:
+  /process:
+    post:
+      operationId: process
+      summary: Маскирование/демаскирование строки (коррелируется по payload_id)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProcessRequest"
+      responses:
+        "200":
+          description: Успешная обработка
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessResponse"
+        "409":
+          description: Существующий payload_id использован с неизвестным payload
+        "413":
+          description: Payload превышает допустимый размер
+        "422":
+          description: Отсутствует поле или нарушен тип schema
+        "429":
+          description: |
+            Слишком много запросов. Допустимо под нагрузкой. Проверяющая система применит
+            ожидание и ретраи; если 429 не проходит — это значимый результат.
+        "410":
+          description: payload_id истёк (tombstone)
+        "5XX":
+          description: Внутренняя ошибка сервиса
+components:
+  schemas:
+    ProcessRequest:
+      type: object
+      required: [payload, payload_id]
+      properties:
+        payload:
+          type: string
+          description: |
+            Строка для обработки. На прямом шаге — исходный текст с ПД; на обратном шаге —
+            ваша же ранее возвращённая замаскированная строка (тот же payload_id).
+          example: "Клиент Иванов Иван Иванович, паспорт 4509 123456"
+        payload_id:
+          type: string
+          description: Идентификатор корреляции. Один и тот же для пары маскирование→демаскирование.
+          example: "8a77d363c7c044b49b41d7b8a448243a"
+    ProcessResponse:
+      type: object
+      required: [result]
+      properties:
+        result:
+          type: string
+          description: Результат обработки (замаскированная строка на прямом шаге, исходная — на обратном).
+          example: "Клиент __PII_PERSON_1__, паспорт __PII_PASSPORT_1__"

@@ -12,7 +12,7 @@ Roadmap отражает порядок работ, но не заменяет �
 - [x] Первый набор rule-based detectors для всех обязательных категорий.
 - [x] Safe diagnostics и explicit dev-only full-body logging.
 - [ ] Измеренный quality baseline по 17 категориям.
-- [ ] `POST /process`.
+- [x] `POST /process`.
 
 ## P0 — автоматический контракт
 
@@ -25,6 +25,7 @@ Roadmap отражает порядок работ, но не заменяет �
 - [x] Admission control, `429` и `Retry-After`.
 - [x] Safe logs без payload/mapping.
 - [ ] Раздельная валидация payload bytes и estimated tokens без допущения «100k = 400 КБ».
+- [ ] OpenAPI-спецификация `process_api.yaml` (контракт `/process`).
 - [x] README curl examples.
 
 Критерий готовности: контрактные tests проходят; первый/повторный masking и
@@ -49,7 +50,8 @@ demasking детерминированы; конфликт не изменяет
 
 ## P2 — производительность и большие тексты
 
-- [ ] Rate-controlled load test для `/process`.
+- [x] Rate-controlled load test для `/process` (`scripts/load_test_process.py`).
+- [ ] Подтверждение пика 1000 RPS на целевой конфигурации (сейчас ~628 RPS при keepalive=10; 1000 RPS НЕ доказан).
 - [ ] Профиль нагрузки: ramp-up, средняя ~330 RPS, пики 1000 RPS, до 200 connections.
 - [ ] Mean/p50/p95/p99, RPS, TPS, error/429 и cache-hit metrics.
 - [ ] Равное количество masking и demasking запросов с последовательной парой.

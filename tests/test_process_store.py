@@ -141,6 +141,29 @@ def test_capacity_released_after_expiry(
     asyncio.run(run())
 
 
+def test_active_session_counts_original_and_masked_bytes(
+    store: ProcessStore,
+) -> None:
+    """current_bytes must include original+masked+overhead, not just payload."""
+
+    async def run() -> None:
+        before = store.current_bytes
+        await store.get_or_create_pending("id-1", 100, ("fp", 100))
+        await store.publish_active("id-1", "original", "masked", 1, ["PERSON"])
+
+        # After publish, the pending payload reservation is replaced by the
+        # session's real footprint (original + masked + id + overhead).
+        expected = (
+            len("original")
+            + len("masked")
+            + len("id-1")
+            + ProcessStore.SESSION_OVERHEAD_BYTES
+        )
+        assert store.current_bytes == before + expected
+
+    asyncio.run(run())
+
+
 def test_tombstone_returns_410(store: ProcessStore, clock: _FakeClock) -> None:
     async def run() -> None:
         await store.get_or_create_pending("id-1", 10, ("fp", 10))

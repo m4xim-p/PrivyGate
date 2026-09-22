@@ -9,7 +9,7 @@ PrivyGate предоставляет два API-адаптера над един
 - `POST /v1/chat/completions` — прозрачный OpenAI-like proxy с вызовом LLM и
   streaming demasking.
 
-`/process` пока является целевой, но ещё не реализованной частью архитектуры.
+`/process` реализован через `ProcessService` + `ProcessStore` над единым PII-ядром.
 
 ```text
                          +--------------------+
@@ -18,11 +18,9 @@ POST /process ---------->| ProcessService     |----> ProcessStore
                                    |
                                    v
                          +--------------------+
-                         | PrivacyEngine      |
-                         | - DetectorRegistry |
-                         | - OverlapResolver  |
-                         | - MaskingPolicy    |
-                         | - Demasker         |
+                         | PIIMaskingEngine   |
+                         | - detector profile |
+                         | - PIIMasker        |
                          +---------+----------+
                                    ^
                                    |
@@ -33,8 +31,10 @@ POST /v1/chat/completions----------+
                          +----> streaming demasking
 ```
 
-Названия `ProcessService`, `PrivacyEngine`, `MaskingPolicy` и `ProcessStore`
-описывают целевые границы. Они не означают, что одноимённые модули уже существуют.
+`ProcessService`, `ProcessStore` и `PIIMaskingEngine` реализованы. Целевой
+`PrivacyEngine` с `DetectorRegistry`/`MaskingPolicy` остаётся направлением
+развития для per-consumer политик; текущая реализация использует
+`PIIMaskingEngine` как тонкую обёртку над `PIIMasker`.
 
 ## Существующие компоненты
 
@@ -82,12 +82,14 @@ text
  -> confidence policy
  -> overlap resolution
  -> masking policy (typed placeholders — default AlfaSonar)
- -> MaskingResult(text, mapping, safe diagnostics)
+ -> masked text + safe diagnostics (count, types)
 ```
 
-Detector отвечает только за кандидатов. Решение «маскировать или нет» и вид маски
-принадлежат policy/application layer. Это позволяет менять weights и context words
-без переписывания endpoints.
+Mapping существует только временно внутри `PIIMasker.mask()` и не возвращается
+наружу: `PIIMaskingEngine` возвращает masked текст и безопасную диагностику без
+mapping. Detector отвечает только за кандидатов. Решение «маскировать или нет» и
+вид маски принадлежат policy/application layer. Это позволяет менять weights и
+context words без переписывания endpoints.
 
 ## Поток `/process`
 
@@ -126,8 +128,10 @@ chat request
  -> client
 ```
 
-Mapping proxy живёт только в течение запроса. Mapping `/process` живёт до второго
-вызова или TTL — смешивать эти жизненные циклы нельзя.
+Mapping proxy живёт только в течение запроса. Mapping `/process` существует только
+временно внутри `PIIMasker.mask()` и не хранится в session: demasking выполняется
+возвратом сохранённого original. Жизненные циклы mapping proxy и `/process` не
+смешиваются.
 
 ## Конфигурация потребителей
 
