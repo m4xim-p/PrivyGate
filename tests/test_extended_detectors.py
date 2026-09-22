@@ -131,11 +131,10 @@ def test_driving_license() -> None:
 
 def test_address_postal_code() -> None:
     text = "Адрес: 101000, город Москва"
-    match = AddressDetector().detect(text)[0]
+    matches = AddressDetector().detect(text)
 
-    assert match.pii_type == "ADDRESS"
-    assert match.value == "101000"
-    assert PIIMasker().mask(text) == "Адрес: __PII_ADDRESS_1__, город Москва"
+    assert any(m.pii_type == "ADDRESS" for m in matches)
+    assert PIIMasker().mask(text) == "Адрес: __PII_ADDRESS_1__"
 
 
 def test_cvv() -> None:

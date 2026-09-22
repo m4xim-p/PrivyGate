@@ -17,10 +17,19 @@ PHONE_PATTERN = re.compile(
     r"(?<![0-9])(?:\+7|8)[\s-]*\(?[0-9]{3}\)?[\s-]*"
     r"[0-9]{3}[\s-]*[0-9]{2}[\s-]*[0-9]{2}(?![0-9])"
 )
+# Foreign phone numbers: +<country code> <area> <number> (e.g. +1, +44, +49).
+FOREIGN_PHONE_PATTERN = re.compile(
+    r"(?<![0-9])\+(?:[1-9][0-9]{0,2})[\s-]*\(?[0-9]{2,4}\)?[\s-]*"
+    r"[0-9]{3,4}[\s-]*[0-9]{3,4}(?![0-9])"
+)
 AMBIGUOUS_PHONE_PATTERN = re.compile(r"(?<![0-9])[0-9]{10}(?![0-9])")
 PASSPORT_PATTERN = re.compile(
     r"(?<![0-9])(?P<series>(?P<region>[0-9]{2})[ -]?[0-9]{2})"
     r"[ \t]+(?:№[ \t]*)?(?P<number>[0-9]{6})(?![0-9])"
+)
+# Russian foreign passport: 2 digits + 7 digits (e.g. 71 1234567).
+FOREIGN_PASSPORT_PATTERN = re.compile(
+    r"(?<![0-9])(?:[0-9]{2}[ \t]+[0-9]{7})(?![0-9])"
 )
 SNILS_PATTERN = re.compile(
     r"(?<![0-9])[0-9]{3}[- ]?[0-9]{3}[- ]?[0-9]{3}[ ]?[0-9]{2}(?![0-9])"
@@ -107,6 +116,15 @@ class PhoneDetector:
 
     def __init__(self, config: PhoneDetectorConfig | None = None) -> None:
         self.config = config if config is not None else PhoneDetectorConfig()
+        self._foreign_context = ContextConfig(
+            positive_context_weights={
+                "phone": 0.45,
+                "номер": 0.35,
+                "тел": 0.35,
+                "телефон": 0.35,
+                "мобильный": 0.35,
+            },
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
         matches = [
@@ -117,6 +135,19 @@ class PhoneDetector:
             self._ambiguous_match(text, match)
             for match in AMBIGUOUS_PHONE_PATTERN.finditer(text)
         )
+        matches.extend(self._foreign_phone_matches(text))
+        return matches
+
+    def _foreign_phone_matches(self, text: str) -> list[PIIMatch]:
+        """Detect foreign phone numbers anchored by context markers."""
+        matches: list[PIIMatch] = []
+        for match in FOREIGN_PHONE_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self._foreign_context
+            )
+            if confidence < 0.80:
+                continue
+            matches.append(self._to_match(match, confidence))
         return matches
 
     def _ambiguous_match(self, text: str, match: re.Match[str]) -> PIIMatch:
@@ -198,7 +229,7 @@ class PhoneDetector:
 
 
 class PassportDetector:
-    """Detect supported, explicitly formatted Russian internal passports."""
+    """Detect Russian internal, foreign and international passports."""
 
     pii_type = "PASSPORT"
 
@@ -207,9 +238,22 @@ class PassportDetector:
         self._driving_context = ContextConfig(
             positive_context_weights={
                 "водительское удостоверение": 0.99,
+                "водительского удостоверения": 0.99,
                 "водительские права": 0.99,
+                "водительских прав": 0.99,
                 "права": 0.99,
+                "прав": 0.99,
                 "удостоверение": 0.99,
+                "удостоверения": 0.99,
+            },
+        )
+        self._foreign_context = ContextConfig(
+            positive_context_weights={
+                "загранпаспорт": 0.99,
+                "загранпаспорта": 0.99,
+                "passport": 0.99,
+                "паспорт": 0.60,
+                "паспорта": 0.60,
             },
         )
 
@@ -225,6 +269,27 @@ class PassportDetector:
                 text, match.start(), match.end(), self._driving_context
             ) >= 0.99:
                 confidence = 0.50
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        matches.extend(self._foreign_passport_matches(text))
+        return matches
+
+    def _foreign_passport_matches(self, text: str) -> list[PIIMatch]:
+        """Detect foreign/international passports anchored by context markers."""
+        matches: list[PIIMatch] = []
+        for match in FOREIGN_PASSPORT_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self._foreign_context
+            )
+            if confidence < 0.80:
+                continue
             matches.append(
                 PIIMatch(
                     pii_type=self.pii_type,
@@ -432,6 +497,33 @@ def _is_abbreviation_continuation(text: str, period_index: int) -> bool:
     return text[next_index].isalpha()
 
 
+def _is_sentence_end(text: str, period_index: int) -> bool:
+    """Return True when a period ends a sentence (uppercase or end of text)."""
+    next_index = period_index + 1
+    while next_index < len(text) and text[next_index] in " \t":
+        next_index += 1
+    if next_index >= len(text):
+        return True
+    return text[next_index].isupper()
+
+
+_ADDRESS_ABBREVIATIONS = frozenset(
+    {
+        "г", "ул", "д", "кв", "п", "обл", "с", "ст", "к", "р-н", "пер",
+        "пр-т", "просп", "ш", "б-р", "наб", "пл", "корп", "стр", "оф",
+    }
+)
+
+
+def _is_address_abbreviation(text: str, period_index: int) -> bool:
+    """Return True when a period belongs to a known address abbreviation."""
+    start = period_index
+    while start > 0 and text[start - 1].isalpha():
+        start -= 1
+    token = text[start:period_index].casefold()
+    return token in _ADDRESS_ABBREVIATIONS
+
+
 def _context_confidence(
     text: str,
     start: int,
@@ -507,6 +599,23 @@ DATE_TEXT_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+# English textual dates: "15 March 1990", "March 15, 1990".
+ENGLISH_MONTHS = {
+    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11,
+    "december": 12,
+}
+ENGLISH_DATE_PATTERN = re.compile(
+    r"(?<![a-z0-9])"
+    r"(?:(?P<day>[0-9]{1,2})\s+(?P<month1>january|february|march|april|may|june|"
+    r"july|august|september|october|november|december)"
+    r"(?:,?\s+(?P<year1>[0-9]{4}))?"
+    r"|(?P<month2>january|february|march|april|may|june|july|august|september|"
+    r"october|november|december)\s+(?P<day2>[0-9]{1,2}),?\s+(?P<year2>[0-9]{4}))"
+    r"(?![a-z0-9])",
+    flags=re.IGNORECASE,
+)
+
 
 def _is_valid_calendar_date(day: int, month: int, year: int) -> bool:
     if not (1 <= month <= 12):
@@ -533,6 +642,9 @@ class DateOfBirthDetector:
                 "родился": 0.35,
                 "родилась": 0.35,
                 "день рождения": 0.35,
+                "date of birth": 0.45,
+                "born on": 0.40,
+                "born": 0.35,
             },
             negative_context_weights={
                 "срок действия": 0.55,
@@ -568,6 +680,37 @@ class DateOfBirthDetector:
             if year is not None and not _is_valid_calendar_date(day, month, year):
                 continue
             confidence = self._confidence(text, match.start(), match.end())
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        matches.extend(self._english_date_matches(text))
+        return matches
+
+    def _english_date_matches(self, text: str) -> list[PIIMatch]:
+        """Detect English textual dates anchored by birth context."""
+        matches: list[PIIMatch] = []
+        for match in ENGLISH_DATE_PATTERN.finditer(text):
+            day_text = match.group("day") or match.group("day2")
+            month_text = match.group("month1") or match.group("month2")
+            year_text = match.group("year1") or match.group("year2")
+            if day_text is None or month_text is None:
+                continue
+            day = int(day_text)
+            month = ENGLISH_MONTHS.get(month_text.casefold())
+            year = int(year_text) if year_text else None
+            if month is None:
+                continue
+            if year is not None and not _is_valid_calendar_date(day, month, year):
+                continue
+            confidence = self._confidence(text, match.start(), match.end())
+            if confidence < 0.80:
+                continue
             matches.append(
                 PIIMatch(
                     pii_type=self.pii_type,
@@ -689,6 +832,8 @@ class CitizenshipDetector:
                 "гражданство": 0.40,
                 "гражданин": 0.35,
                 "гражданка": 0.35,
+                "citizenship": 0.45,
+                "citizen": 0.40,
             },
         )
 
@@ -696,7 +841,8 @@ class CitizenshipDetector:
         matches: list[PIIMatch] = []
         normalized = text.casefold()
         for phrase in self.config.positive_context_weights:
-            for marker in re.finditer(re.escape(phrase.casefold()), normalized):
+            pattern = re.compile(rf"\b{re.escape(phrase.casefold())}\b")
+            for marker in pattern.finditer(normalized):
                 start = self._trim_start(text, marker.end())
                 end = self._value_end(text, start)
                 if end <= start:
@@ -888,9 +1034,13 @@ class DrivingLicenseDetector:
         self.config = config if config is not None else ContextConfig(
             positive_context_weights={
                 "водительское удостоверение": 0.40,
+                "водительского удостоверения": 0.40,
                 "водительские права": 0.40,
+                "водительских прав": 0.40,
                 "права": 0.30,
+                "прав": 0.30,
                 "удостоверение": 0.30,
+                "удостоверения": 0.30,
             },
         )
 
@@ -928,9 +1078,13 @@ class AddressDetector:
         self.config = config if config is not None else ContextConfig(
             positive_context_weights={
                 "адрес": 0.40,
+                "адресу": 0.40,
                 "проживает": 0.35,
+                "проживает по адресу": 0.40,
                 "зарегистрирован": 0.35,
                 "зарегистрирована": 0.35,
+                "зарегистрирован по адресу": 0.40,
+                "прописка": 0.40,
                 "индекс": 0.40,
                 "город": 0.35,
                 "улица": 0.35,
@@ -938,7 +1092,35 @@ class AddressDetector:
                 "дом": 0.30,
                 "квартира": 0.30,
                 "кв.": 0.30,
+                "address": 0.40,
+                "registered at": 0.40,
+                "lives at": 0.40,
             },
+        )
+        self._full_address_markers = (
+            "адрес",
+            "адресу",
+            "проживает по адресу",
+            "зарегистрирован по адресу",
+            "зарегистрирована по адресу",
+            "прописка",
+            "address",
+            "registered at",
+            "lives at",
+        )
+        # Addresses of organizations/branches are not personal PII.
+        self._organization_address_markers = (
+            "отделение банка",
+            "отделения банка",
+            "отделение",
+            "банкомат",
+            "офис",
+            "пункт выдачи",
+            "организация",
+            "компания",
+            "юридический адрес",
+            "адрес отделения",
+            "адрес офиса",
         )
 
     def detect(self, text: str) -> list[PIIMatch]:
@@ -956,7 +1138,61 @@ class AddressDetector:
                     confidence=confidence,
                 )
             )
+        matches.extend(self._full_address_matches(text))
         return matches
+
+    def _full_address_matches(self, text: str) -> list[PIIMatch]:
+        """Capture the full address block after an explicit address marker."""
+        matches: list[PIIMatch] = []
+        normalized = text.casefold()
+        for marker in self._full_address_markers:
+            for found in re.finditer(re.escape(marker), normalized):
+                if self._is_organization_address(normalized, found.start()):
+                    continue
+                start = self._trim_start(text, found.end())
+                end = self._address_end(text, start)
+                if end <= start:
+                    continue
+                confidence = _context_confidence(text, start, end, self.config)
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=text[start:end],
+                        start=start,
+                        end=end,
+                        confidence=confidence,
+                    )
+                )
+        return matches
+
+    def _is_organization_address(self, normalized: str, marker_start: int) -> bool:
+        """Return True when an address marker belongs to an organization."""
+        window_start = max(0, marker_start - 60)
+        window = normalized[window_start:marker_start]
+        return any(marker in window for marker in self._organization_address_markers)
+
+    @staticmethod
+    def _trim_start(text: str, start: int) -> int:
+        while start < len(text) and text[start] in " \t:;":
+            start += 1
+        return start
+
+    @staticmethod
+    def _address_end(text: str, start: int) -> int:
+        end = start
+        while end < len(text):
+            character = text[end]
+            if character == "\n":
+                break
+            if character == ".":
+                # A period ends the address unless it is a known address
+                # abbreviation (г., ул., д., кв., п., обл., с., ст., к., р-н).
+                if _is_address_abbreviation(text, end):
+                    end += 1
+                    continue
+                break
+            end += 1
+        return end
 
 
 # ---------------------------------------------------------------------------
@@ -1087,6 +1323,15 @@ NAME_CANDIDATE_PATTERN = re.compile(
     r"(?![а-яёa-z0-9])"
 )
 
+# Transliterated/English full names: 2-3 capitalized Latin words (Title Case
+# or ALL CAPS). Requires context to avoid false positives on arbitrary words.
+LATIN_NAME_PATTERN = re.compile(
+    r"(?<![A-Za-z])"
+    r"(?:[A-Z][a-z]+(?:-[A-Z][a-z]+)?|[A-Z]{2,}(?:-[A-Z]{2,})?)"
+    r"(?:\s+(?:[A-Z][a-z]+(?:-[A-Z][a-z]+)?|[A-Z]{2,}(?:-[A-Z]{2,})?)){1,2}"
+    r"(?![A-Za-z])"
+)
+
 
 class NameDetector:
     """Detect Russian full names (ФИО) from a local dataset without NER.
@@ -1101,6 +1346,18 @@ class NameDetector:
 
     def __init__(self, confidence: float = 0.95) -> None:
         self._confidence = confidence
+        self._latin_context = ContextConfig(
+            positive_context_weights={
+                "name": 0.45,
+                "full name": 0.50,
+                "зовут": 0.40,
+                "фио": 0.45,
+                "cardholder": 0.45,
+                "card holder": 0.45,
+                "держатель": 0.40,
+                "владелец": 0.40,
+            },
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
         matches: list[PIIMatch] = []
@@ -1117,6 +1374,44 @@ class NameDetector:
                     start=candidate.start(),
                     end=candidate.end(),
                     confidence=self._confidence,
+                )
+            )
+        matches.extend(self._latin_name_matches(text))
+        return matches
+
+    def _latin_name_matches(self, text: str) -> list[PIIMatch]:
+        """Detect transliterated/English full names.
+
+        Three-word runs (Фамилия Имя Отчество) are structurally a full name and
+        are masked without context. Two-word runs require context to avoid false
+        positives on arbitrary capitalized words.
+        """
+        matches: list[PIIMatch] = []
+        for candidate in LATIN_NAME_PATTERN.finditer(text):
+            token_count = len(candidate.group(0).split())
+            if token_count >= 3:
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=candidate.group(0),
+                        start=candidate.start(),
+                        end=candidate.end(),
+                        confidence=self._confidence,
+                    )
+                )
+                continue
+            confidence = _context_confidence(
+                text, candidate.start(), candidate.end(), self._latin_context
+            )
+            if confidence < 0.80:
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=candidate.group(0),
+                    start=candidate.start(),
+                    end=candidate.end(),
+                    confidence=confidence,
                 )
             )
         return matches

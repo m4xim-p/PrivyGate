@@ -1,11 +1,11 @@
 """Golden dataset quality harness.
 
-Runs the golden dataset in ``tests/data/golden_cases.csv`` through the default
-rule-based masker and reports precision/recall/F1 plus FP/FN per category.
+Runs the golden datasets in ``tests/data/*.csv`` through the default rule-based
+masker and reports precision/recall/F1 plus FP/FN per category.
 
-The dataset is the source of truth for P1 quality work. Known regressions are
+Datasets are the source of truth for P1 quality work. Known regressions are
 reported (not silently ignored) so the team can track progress toward the 95%
-target. This test does not fail on known gaps; it asserts the dataset is valid
+target. These tests do not fail on known gaps; they assert each dataset is valid
 and that the harness itself works.
 """
 
@@ -14,65 +14,84 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+import pytest
+
 from app.pii import PIIMasker
 
-GOLDEN_CSV = Path(__file__).parent / "data" / "golden_cases.csv"
+DATA_DIR = Path(__file__).parent / "data"
+DATASETS = [
+    ("golden_cases.csv", "golden"),
+    ("api_cases.csv", "api"),
+    ("extended_cases.csv", "extended"),
+]
+
+# Datasets expected to cover every required category as a primary category.
+FULL_COVERAGE_DATASETS = {"golden", "api"}
+
+REQUIRED_CATEGORIES = {
+    "PERSON",
+    "DATE_OF_BIRTH",
+    "BIRTH_PLACE",
+    "PASSPORT",
+    "CITIZENSHIP",
+    "PASSPORT_AUTHORITY",
+    "PASSPORT_UNIT_CODE",
+    "PASSPORT_ISSUE_DATE",
+    "DRIVING_LICENSE",
+    "ADDRESS",
+    "EMAIL",
+    "PHONE",
+    "INN",
+    "CARD",
+    "CVV",
+    "PIN",
+    "CARD_HOLDER",
+}
 
 
-def _load_cases() -> list[dict[str, str]]:
-    with GOLDEN_CSV.open(encoding="utf-8", newline="") as handle:
+def _load_cases(filename: str) -> list[dict[str, str]]:
+    with (DATA_DIR / filename).open(encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
 
 
-def test_golden_dataset_is_valid() -> None:
-    cases = _load_cases()
-    assert cases, "golden dataset must not be empty"
+@pytest.mark.parametrize("filename,label", DATASETS)
+def test_dataset_is_valid(filename: str, label: str) -> None:
+    cases = _load_cases(filename)
+    assert cases, f"{label} dataset must not be empty"
     for case in cases:
-        assert case["id"], "every case needs an id"
-        assert case["category"], f"{case['id']}: missing category"
+        assert case["id"], f"{label}: every case needs an id"
+        assert case["category"], f"{label} {case['id']}: missing category"
         assert case["kind"] in {"positive", "negative", "variant", "overlapping"}, (
-            f"{case['id']}: unknown kind {case['kind']!r}"
+            f"{label} {case['id']}: unknown kind {case['kind']!r}"
         )
         assert case["expected_masked"] in {"true", "false"}, (
-            f"{case['id']}: expected_masked must be true/false"
+            f"{label} {case['id']}: expected_masked must be true/false"
         )
 
 
-def test_golden_dataset_has_both_kinds() -> None:
-    cases = _load_cases()
+@pytest.mark.parametrize("filename,label", DATASETS)
+def test_dataset_has_both_kinds(filename: str, label: str) -> None:
+    cases = _load_cases(filename)
     kinds = {case["kind"] for case in cases}
-    assert "positive" in kinds and "negative" in kinds
+    assert "positive" in kinds and "negative" in kinds, (
+        f"{label} dataset must have both positive and negative cases"
+    )
 
 
-def test_golden_dataset_covers_all_required_categories() -> None:
-    cases = _load_cases()
+@pytest.mark.parametrize("filename,label", DATASETS)
+def test_dataset_covers_all_required_categories(filename: str, label: str) -> None:
+    if label not in FULL_COVERAGE_DATASETS:
+        pytest.skip(f"{label} dataset is not expected to cover every category")
+    cases = _load_cases(filename)
     categories = {case["category"] for case in cases}
-    required = {
-        "PERSON",
-        "DATE_OF_BIRTH",
-        "BIRTH_PLACE",
-        "PASSPORT",
-        "CITIZENSHIP",
-        "PASSPORT_AUTHORITY",
-        "PASSPORT_UNIT_CODE",
-        "PASSPORT_ISSUE_DATE",
-        "DRIVING_LICENSE",
-        "ADDRESS",
-        "EMAIL",
-        "PHONE",
-        "INN",
-        "CARD",
-        "CVV",
-        "PIN",
-        "CARD_HOLDER",
-    }
-    missing = required - categories
-    assert not missing, f"golden dataset missing categories: {sorted(missing)}"
+    missing = REQUIRED_CATEGORIES - categories
+    assert not missing, f"{label} dataset missing categories: {sorted(missing)}"
 
 
-def test_golden_dataset_quality_report() -> None:
+@pytest.mark.parametrize("filename,label", DATASETS)
+def test_dataset_quality_report(filename: str, label: str) -> None:
     """Run the dataset and print a quality report (does not fail on gaps)."""
-    cases = _load_cases()
+    cases = _load_cases(filename)
     masker = PIIMasker()
     tp = tn = fp = fn = 0
     per_category: dict[str, dict[str, int]] = {}
@@ -103,7 +122,7 @@ def test_golden_dataset_quality_report() -> None:
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
 
     report = [
-        f"golden_dataset total={len(cases)} tp={tp} tn={tn} fp={fp} fn={fn}",
+        f"{label}_dataset total={len(cases)} tp={tp} tn={tn} fp={fp} fn={fn}",
         f"precision={precision:.3f} recall={recall:.3f} f1={f1:.3f}",
     ]
     for category in sorted(per_category):

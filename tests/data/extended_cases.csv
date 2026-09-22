@@ -1,0 +1,38 @@
+id,category,kind,text,expected_masked,expected_span,note
+X01,PASSPORT,positive,Загранпаспорт 71 1234567,true,71 1234567,Загранпаспорт РФ: 2+7 цифр
+X02,PASSPORT,positive,Загранпаспорт 71 1234567 выдан,true,71 1234567,Загранпаспорт РФ
+X03,PASSPORT,negative,Загранпаспорт 71 N1234567,false,,Буквенно-цифровой — не входит в 17 категорий
+X04,PASSPORT,positive,"Загранпаспорт 71 1234567, выдан 15.03.2019",true,71 1234567,Загранпаспорт с датой
+X05,PASSPORT,negative,Passport AB1234567,false,,Иностранный паспорт — не входит в 17 категорий
+X06,PASSPORT,negative,Passport No. 512345678,false,,9 цифр без букв — неоднозначно
+X07,PASSPORT,negative,Паспорт гражданина Казахстана N1234567,false,,Иностранный паспорт — не входит в 17 категорий
+X08,PASSPORT,negative,"Passport No. 512345678, выдан 15.03.2019, гражданин Казахстана",false,,"Иностранный документ — бонус, не входит в 17"
+X09,PERSON,positive,IVANOV IVAN IVANOVICH,true,IVANOV IVAN IVANOVICH,Транслитерация ФИО (3 слова)
+X10,PERSON,negative,Ivanov Ivan,false,,Транслитерация 2 слова без контекста — неоднозначно
+X11,PERSON,negative,PETROV SERGEY,false,,Транслитерация 2 слова без контекста — неоднозначно
+X12,PERSON,positive,Name: Ivan Petrov,true,Ivan Petrov,Английское написание
+X13,PERSON,positive,Full name: IVAN PETROV,true,IVAN PETROV,Английское написание
+X14,PERSON,positive,Cardholder IVAN PETROV,true,IVAN PETROV,Транслитерация в контексте карты
+X15,PERSON,negative,Ivan Petrov,false,,Без контекста — неоднозначно
+X16,PHONE,positive,Phone +1 202 555 0143,true,+1 202 555 0143,Американский номер
+X17,PHONE,positive,Phone +44 20 7946 0958,true,+44 20 7946 0958,Британский номер
+X18,PHONE,positive,Мой номер +49 30 1234567,true,+49 30 1234567,Немецкий номер
+X19,PHONE,negative,Phone 202-555-0143,false,,Без кода страны
+X20,EMAIL,positive,Email john.doe@gmail.com,true,john.doe@gmail.com,Иностранный email
+X21,EMAIL,positive,Contact: jane.smith@yahoo.co.uk,true,jane.smith@yahoo.co.uk,Иностранный email
+X22,ADDRESS,positive,"Address: Moscow, Tverskaya 7",true,"Moscow, Tverskaya 7",Английский адрес
+X23,ADDRESS,positive,"Registered at: 101000, Moscow, Tverskaya 7",true,"101000, Moscow, Tverskaya 7",Английский адрес с индексом
+X24,ADDRESS,negative,"Moscow, Tverskaya 7",false,,Без контекста адреса
+X25,INN,negative,Tax ID 123-45-6789,false,,SSN не входит в 17 категорий
+X26,INN,negative,Tax ID 123-45-6789,false,,SSN не входит в 17 категорий
+X27,CARD,positive,Card 4111 1111 1111 1111,true,4111 1111 1111 1111,Карта Visa
+X28,CARD,positive,Card 5500 0000 0000 0004,true,5500 0000 0000 0004,Карта Mastercard
+X29,DATE_OF_BIRTH,positive,Date of birth 15 March 1990,true,15 March 1990,Английская дата
+X30,DATE_OF_BIRTH,positive,Born on 1990-03-15,true,1990-03-15,ISO дата
+X31,DATE_OF_BIRTH,negative,Meeting on 15 March 1990,false,,Не дата рождения
+X32,CARD_HOLDER,positive,Cardholder IVAN PETROV,true,IVAN PETROV,Транслитерация держателя
+X33,CARD_HOLDER,positive,Card holder ANNA VOLKOVA,true,ANNA VOLKOVA,Транслитерация держателя
+X34,CVV,positive,CVV 123,true,123,CVV
+X35,PIN,positive,PIN 1234,true,1234,PIN
+X36,CITIZENSHIP,positive,Citizenship: Russian Federation,true,Russian Federation,Английское гражданство
+X37,CITIZENSHIP,negative,Citizenship,false,,Без значения
