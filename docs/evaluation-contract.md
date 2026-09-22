@@ -51,16 +51,23 @@ response — string `result`.
 ```text
 ABSENT
   -> masking
-  -> ACTIVE(original, masked, mapping)
+  -> ACTIVE(original, masked, diagnostics)
   -> demasking
   -> COMPLETED(original, masked)
   -> expiry
 ```
 
-`ACTIVE` сохраняет mapping до первого успешного demasking и допускает retry исходного
-payload. `COMPLETED` нельзя удалять немедленно: если demasking response потерян в сети,
-повтор masked payload должен снова вернуть original. Для состояний используются разные
-TTL и единый atomic store.
+`ACTIVE` сохраняет original и masked до первого успешного demasking и допускает retry
+исходного payload. `COMPLETED` нельзя удалять немедленно: если demasking response
+потерян в сети, повтор masked payload должен снова вернуть original. Для состояний
+используются разные TTL и единый atomic store.
+
+Mapping в session не хранится: он существует только временно внутри `PIIMasker.mask()`
+и удаляется после формирования masked. Demasking выполняется возвратом сохранённого
+original, поскольку checker присылает точную строку masked.
+
+`COMPLETED` отвечает на оба входа: повтор исходного payload возвращает ту же маску,
+повтор masked payload возвращает original.
 
 ## Ошибки
 

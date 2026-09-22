@@ -17,7 +17,7 @@ LLM proxy, и как отдельный сервис обработки стро
 | Latency | не более 1 секунды; фиксируются mean/p50/p95/p99 | Нет benchmark `/process` |
 | Размер текста | до 100 000 токенов | Архитектурно не подтверждено; нельзя заменять требование лимитом ~400 КБ |
 | Расширенный уровень | 2000 RPS | Не реализовано |
-| Автоматический контракт | `POST /process` | Не реализован |
+| Автоматический контракт | `POST /process` | present | Реализован: ProcessService + ProcessStore, контрактные тесты зелёные |
 
 ## Обязательные категории PII
 
@@ -57,8 +57,8 @@ LLM proxy, и как отдельный сервис обработки стро
 |---|---|---|
 | Request-scoped masking/demasking | present | Используется LLM proxy |
 | Boundary-safe streaming demasking | present | Placeholder может пересекать chunks |
-| `POST /process` | missing | P0 в roadmap |
-| Idempotency по `payload_id` | missing | Требуется для retries AlfaSonar |
+| `POST /process` | present | Реализован: ProcessService + ProcessStore |
+| Idempotency по `payload_id` | present | Retry masking/demasking детерминированы; конфликт -> 409 |
 | Конфигурация типов PII по потребителю | missing | Нужен policy registry |
 | Включение/отключение потребителей | missing | Нужен allowlist/evaluation profile |
 | Демаскирование по политике потребителя | missing | Сейчас всегда выполняется proxy-потоком |

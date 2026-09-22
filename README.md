@@ -94,6 +94,30 @@ curl -N http://localhost:8000/v1/chat/completions \
 Повторные запросы последовательно попадут в backend-1, backend-2, backend-3 и
 снова backend-1. Проверка здоровья: `curl http://localhost:8000/health`.
 
+## Контракт `/process`
+
+Обязательный эндпоинт для автоматической проверки AlfaSonar. Маскирование и
+демаскирование коррелируются по `payload_id`:
+
+```bash
+# Маскирование (первый запрос с новым payload_id)
+curl -X POST http://localhost:8000/process \
+  -H 'Content-Type: application/json' \
+  -d '{"payload":"Иванов Иван Иванович, паспорт 45 10 123456","payload_id":"demo-1"}'
+# -> {"result":"__PII_PERSON_1__, паспорт __PII_PASSPORT_1__"}
+
+# Демаскирование (второй запрос с тем же payload_id и ранее выданной маской)
+curl -X POST http://localhost:8000/process \
+  -H 'Content-Type: application/json' \
+  -d '{"payload":"__PII_PERSON_1__, паспорт __PII_PASSPORT_1__","payload_id":"demo-1"}'
+# -> {"result":"Иванов Иван Иванович, паспорт 45 10 123456"}
+```
+
+Конфигурация `/process` через переменные окружения: `PROCESS_ACTIVE_TTL_SECONDS`,
+`PROCESS_COMPLETED_TTL_SECONDS`, `PROCESS_STORE_MAX_ENTRIES`, `PROCESS_STORE_MAX_BYTES`,
+`PROCESS_WAITER_TIMEOUT_SECONDS`, `PROCESS_MAX_PAYLOAD_BYTES`, `PROCESS_MASK_WORKERS`,
+`PROCESS_NER_ENABLED`, `PROCESS_NER_MAX_CONCURRENCY`, `PROCESS_DETECTION_PROFILE`.
+
 ### Dev-only просмотр полного запроса к mock backend
 
 Для ручной проверки masking на синтетических данных можно явно включить полный

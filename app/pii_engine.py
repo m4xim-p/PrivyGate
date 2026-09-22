@@ -1,0 +1,40 @@
+"""PIIMaskingEngine: thin abstraction over PIIMasker for /process."""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
+
+from app.pii import PIIDetector, PIIMasker
+
+
+class PIIMaskingEngine:
+    """Creates a fresh PIIMasker per request and runs masking in a worker thread.
+
+    Holds an immutable detector profile. Returns only the masked text and safe
+    diagnostics (count, types). Never returns or stores the mapping.
+    """
+
+    def __init__(
+        self,
+        detectors: Sequence[PIIDetector],
+        *,
+        max_workers: int = 32,
+    ) -> None:
+        self._detectors = tuple(detectors)
+        self._executor = ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="pii-mask"
+        )
+
+    async def mask(self, text: str) -> tuple[str, int, list[str]]:
+        def _run() -> tuple[str, int, list[str]]:
+            masker = PIIMasker(detectors=self._detectors)
+            masked = masker.mask(text)
+            return masked, len(masker.mapping), masker.pii_types
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, _run)
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=False, cancel_futures=True)

@@ -2,7 +2,20 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ProcessRequest(BaseModel):
+    """Request body for the mandatory /process contract."""
+
+    payload: str
+    payload_id: str = Field(min_length=1)
+
+
+class ProcessResponse(BaseModel):
+    """Response body for the /process contract."""
+
+    result: str
 
 
 class ChatMessage(BaseModel):

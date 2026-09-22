@@ -40,6 +40,14 @@ POST /v1/chat/completions----------+
 
 - `app/pii.py` — detector protocol, rule detectors, overlap resolution, masker и
   streaming demasker;
+- `app/pii_engine.py` — `PIIMaskingEngine`: immutable detector profile, создаёт
+  `PIIMasker` на запрос, маскирует в worker thread, возвращает только masked и
+  безопасную диагностику (без mapping);
+- `app/process_store.py` — `ProcessStore`: bounded in-memory TTL store с
+  ACTIVE/COMPLETED lifecycle, pending-координацией и tombstone;
+- `app/process_service.py` — `ProcessService`: оркестратор `/process` (admission,
+  валидация, state machine), без regex/tokenizer/masking;
+- `app/errors.py` — domain errors для `/process` (409/413/422/429/410);
 - `app/ner.py` — optional PERSON detector и Transformers adapter;
 - `app/main.py` — FastAPI lifespan и OpenAI-like Gateway endpoint;
 - `app/proxy.py` — асинхронный upstream streaming;
@@ -86,16 +94,22 @@ Detector отвечает только за кандидатов. Решение
 ```text
 request(payload, payload_id)
  -> admission control
- -> atomic ProcessStore lookup/create
- -> new/original payload: mask and store session
- -> masked payload: return original
+ -> atomic ProcessStore lookup/create (pending)
+ -> new payload: mask outside store lock, publish ACTIVE
+ -> pending + same payload: wait shared Future (asyncio.shield)
+ -> pending + different payload: 409
+ -> original payload: retry masking (same masked)
+ -> masked payload: return original (demasking)
  -> conflicting payload: 409
  -> response(result)
 ```
 
-ProcessSession должен как минимум хранить original, masked, mapping, created_at и
-last_accessed_at. Raw session data не логируется. Подробная state machine описана в
-`evaluation-contract.md`.
+ProcessSession хранит original, masked, state, created_at, last_accessed_at и
+безопасную диагностику (pii_count, pii_types). Mapping в session не хранится:
+он существует только временно внутри `PIIMasker.mask()` и удаляется после
+формирования masked. Demasking `/process` выполняется возвратом сохранённого
+original, поскольку checker присылает точную строку masked. Raw session data не
+логируется. Подробная state machine описана в `evaluation-contract.md`.
 
 Checker передаёт на обратном шаге ровно ранее выданный `masked` текст. Robust
 demasking изменённого LLM-ответа остаётся задачей proxy/demo, но не требуется для

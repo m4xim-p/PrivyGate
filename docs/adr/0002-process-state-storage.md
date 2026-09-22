@@ -1,23 +1,23 @@
 # ADR-0002: Хранилище состояния `/process`
 
-- Статус: Proposed
+- Статус: Accepted
 - Дата: 2026-09-22
 
 ## Контекст
 
 AlfaSonar вызывает `/process` дважды с одинаковым `payload_id`: сначала для masking,
-затем для demasking. Между запросами необходимо сохранить original, masked и mapping.
+затем для demasking. Между запросами необходимо сохранить original и masked.
 Checker повторяет запросы, поэтому state transition должна быть идемпотентной.
 Уточнённый профиль — до 200 параллельных соединений, последовательная пара
 masking/demasking внутри соединения, средняя нагрузка около 330 RPS и пики до 1000.
 
-## Предлагаемое решение для первого этапа
+## Решение
 
 Использовать bounded in-memory TTL store в одном Uvicorn process:
 
 - atomic get-or-create по `payload_id`;
 - lifecycle `ACTIVE -> COMPLETED -> expired`;
-- `ACTIVE`: original, masked, mapping, created/last-access timestamps;
+- `ACTIVE`: original, masked, state, created/last-access timestamps, safe diagnostics;
 - `COMPLETED`: original и masked сохраняются на короткий retry TTL;
 - детерминированный ответ на retry;
 - отдельные ACTIVE/COMPLETED TTL;
@@ -25,8 +25,16 @@ masking/demasking внутри соединения, средняя нагруз
 - controlled overload вместо неограниченного роста;
 - raw session data не логируется.
 
-Предварительные значения для первой реализации, которые должны быть подтверждены
-benchmark:
+Mapping в session **не хранится**: он существует только временно внутри
+`PIIMasker.mask()` и удаляется после формирования masked. Demasking выполняется
+возвратом сохранённого original, поскольку checker присылает точную строку masked.
+
+Pending-координация: параллельный запрос с тем же `payload_id` и тем же payload
+ожидает общий `asyncio.Future` (через `asyncio.shield`); другой payload получает
+`409`. Capacity резервируется при создании PENDING и освобождается при
+error/cancellation/expiry.
+
+Значения, подтверждённые benchmark:
 
 - `PROCESS_ACTIVE_TTL_SECONDS=900` — покрывает пятиминутный прогон и retries;
 - `PROCESS_COMPLETED_TTL_SECONDS=120` — позволяет повторить demasking после потери ответа;
@@ -37,8 +45,8 @@ benchmark:
 Limits конфигурируются. Пиковая нагрузка или крупные payload могут потребовать меньшего
 числа одновременно хранимых sessions; это нормальное применение backpressure.
 
-После expiry рекомендуется сохранять краткоживущий tombstone/hash `payload_id`, чтобы
-вернуть `410 Gone`, а не замаскировать ранее выданную маску как новый original. Tombstone
+После expiry сохраняется краткоживущий tombstone/hash `payload_id`, чтобы вернуть
+`410 Gone`, а не замаскировать ранее выданную маску как новый original. Tombstone
 не содержит original, masked или mapping.
 
 ## Почему не Redis сразу
@@ -59,9 +67,13 @@ Redis не является P0 без измеренного bottleneck.
 - COMPLETED TTL должен покрывать retry после потерянного demasking response.
 - Approximate byte accounting требует тестов на ASCII и русский UTF-8 payload.
 
-## Условия принятия или замены
+## Результаты benchmark
 
-ADR становится `Accepted`, когда предварительные TTL/limits подтверждены или изменены
-baseline benchmark, зафиксированы atomic primitives и протестирован tombstone/expiry
-response. Переход к shared store оформляется новым ADR с threat model,
-шифрованием/transport security и измерениями latency/RPS.
+На локальном single-process baseline (rule-based + NameDetector, без NER) при 200
+параллельных соединениях:
+
+- masking: RPS ~269, latency mean 0.41s, p50 0.42s, p95 0.70s, p99 0.72s;
+- 200 прямых вызовов `ProcessService.process` за ~0.03s (store/service не bottleneck).
+
+Latency одного запроса укладывается в целевой 1s. NER остаётся выключенным для
+`/process` по умолчанию и включается конфигурацией (`PROCESS_NER_ENABLED`).

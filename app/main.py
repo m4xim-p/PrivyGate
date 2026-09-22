@@ -10,9 +10,18 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.models import ChatCompletionRequest
+from app.errors import (
+    ConflictError,
+    GoneError,
+    PayloadTooLargeError,
+    ProcessError,
+    TooManyRequestsError,
+    ValidationError,
+)
+from app.models import ChatCompletionRequest, ProcessRequest, ProcessResponse
 from app.ner import NERDetector, TransformersNERBackend
 from app.pii import (
     PIIDetector,
@@ -20,6 +29,9 @@ from app.pii import (
     NameDetector,
     default_rule_detectors,
 )
+from app.pii_engine import PIIMaskingEngine
+from app.process_service import ProcessService
+from app.process_store import ProcessStore
 from app.proxy import open_upstream_stream
 from app.routing import RoundRobinRouter
 
@@ -103,7 +115,24 @@ async def lifespan(app: FastAPI):
             device,
         )
     app.state.pii_detectors = tuple(detectors)
+    app.state.process_engine = PIIMaskingEngine(
+        app.state.pii_detectors,
+        max_workers=int(os.getenv("PROCESS_MASK_WORKERS", "64")),
+    )
+    app.state.process_service = ProcessService(
+        engine=app.state.process_engine,
+        store=ProcessStore(
+            time_func=time.monotonic,
+            active_ttl=float(os.getenv("PROCESS_ACTIVE_TTL_SECONDS", "900")),
+            completed_ttl=float(os.getenv("PROCESS_COMPLETED_TTL_SECONDS", "120")),
+            max_entries=int(os.getenv("PROCESS_STORE_MAX_ENTRIES", "25000")),
+            max_bytes=int(os.getenv("PROCESS_STORE_MAX_BYTES", "536870912")),
+        ),
+        waiter_timeout=float(os.getenv("PROCESS_WAITER_TIMEOUT_SECONDS", "5")),
+        max_payload_bytes=int(os.getenv("PROCESS_MAX_PAYLOAD_BYTES", "400000")),
+    )
     yield
+    app.state.process_engine.close()
     await app.state.http_client.aclose()
 
 
@@ -113,6 +142,40 @@ app = FastAPI(title="PrivyGate", version="0.1.0", lifespan=lifespan)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "gateway"}
+
+
+@app.exception_handler(ProcessError)
+async def process_error_handler(request: Request, exc: ProcessError):
+    headers: dict[str, str] = {}
+    if isinstance(exc, TooManyRequestsError):
+        headers["Retry-After"] = str(exc.retry_after)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.message},
+        headers=headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    # Never echo the offending input back: it may contain raw PII.
+    errors = [
+        {"loc": list(error["loc"]), "msg": error["msg"], "type": error["type"]}
+        for error in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=422,
+        content={"detail": errors},
+    )
+
+
+@app.post("/process")
+async def process(body: ProcessRequest, request: Request) -> ProcessResponse:
+    service = getattr(request.app.state, "process_service", None)
+    if service is None:
+        raise ValidationError("process service not initialized")
+    result = await service.process(body.payload, body.payload_id)
+    return ProcessResponse(result=result)
 
 
 @app.post("/v1/chat/completions")

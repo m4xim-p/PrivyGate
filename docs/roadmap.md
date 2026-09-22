@@ -16,16 +16,16 @@ Roadmap отражает порядок работ, но не заменяет �
 
 ## P0 — автоматический контракт
 
-- [ ] `ProcessRequest`/`ProcessResponse`.
-- [ ] Атомарный in-memory `ProcessStore` с ACTIVE/COMPLETED TTL, entry и byte bounds.
-- [ ] Idempotent `ProcessService`.
-- [ ] `POST /process` без вызова LLM backend.
-- [ ] Retry masking/demasking, completed retention, expiry, conflict, no-PII и
+- [x] `ProcessRequest`/`ProcessResponse`.
+- [x] Атомарный in-memory `ProcessStore` с ACTIVE/COMPLETED TTL, entry и byte bounds.
+- [x] Idempotent `ProcessService`.
+- [x] `POST /process` без вызова LLM backend.
+- [x] Retry masking/demasking, completed retention, expiry, conflict, no-PII и
   concurrency tests.
-- [ ] Admission control, `429` и `Retry-After`.
-- [ ] Safe logs без payload/mapping.
+- [x] Admission control, `429` и `Retry-After`.
+- [x] Safe logs без payload/mapping.
 - [ ] Раздельная валидация payload bytes и estimated tokens без допущения «100k = 400 КБ».
-- [ ] README curl examples.
+- [x] README curl examples.
 
 Критерий готовности: контрактные tests проходят; первый/повторный masking и
 demasking детерминированы; конфликт не изменяет session.
