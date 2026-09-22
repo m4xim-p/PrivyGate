@@ -1,0 +1,178 @@
+id,category,kind,text,expected_masked,expected_span,note
+P01,PERSON,positive,Иванов Иван Иванович,true,Иванов Иван Иванович,ФИО полностью
+P02,PERSON,positive,Иван Иванович Иванов,true,Иван Иванович Иванов,Имя Отчество Фамилия
+P03,PERSON,positive,Иванов Иван,true,Иванов Иван,Фамилия Имя
+P04,PERSON,positive,Иван Иванов,true,Иван Иванов,Имя Фамилия
+P05,PERSON,positive,Смирнова Анна Петровна,true,Смирнова Анна Петровна,Женская фамилия на -а
+P06,PERSON,positive,Кузнецова Мария,true,Кузнецова Мария,Женская фамилия на -а
+P07,PERSON,positive,Петров Сергей Александрович,true,Петров Сергей Александрович,ФИО
+P08,PERSON,negative,Пушкин,false,,Историческая личность
+P09,PERSON,negative,Александр Пушкин,false,,Историческая личность
+P10,PERSON,negative,Лев Толстой,false,,Историческая личность
+P11,PERSON,negative,Толстой,false,,Историческая личность
+P12,PERSON,negative,Фёдор Достоевский,false,,Историческая личность
+P13,PERSON,negative,Достоевский,false,,Историческая личность
+P14,PERSON,negative,Антон Чехов,false,,Историческая личность
+P15,PERSON,negative,Чехов,false,,Историческая личность
+P16,PERSON,negative,Михаил Лермонтов,false,,Историческая личность
+P17,PERSON,negative,Николай Гоголь,false,,Историческая личность
+P18,PERSON,negative,Сергей Есенин,false,,Историческая личность
+P19,PERSON,negative,Владимир Маяковский,false,,Историческая личность
+P20,PERSON,negative,Иван Бунин,false,,Историческая личность
+P21,PERSON,negative,Александр Блок,false,,Историческая личность
+P22,PERSON,negative,Марина Цветаева,false,,Историческая личность
+P23,PERSON,negative,Анна Ахматова,false,,Историческая личность
+P24,PERSON,negative,Борис Пастернак,false,,Историческая личность
+P25,PERSON,negative,Иосиф Бродский,false,,Историческая личность
+P26,PERSON,negative,Михаил Булгаков,false,,Историческая личность
+P27,PERSON,negative,Иван Тургенев,false,,Историческая личность
+P28,PERSON,negative,Александр Грибоедов,false,,Историческая личность
+P29,PERSON,negative,Николай Некрасов,false,,Историческая личность
+P30,PERSON,negative,Афанасий Фет,false,,Историческая личность
+P31,PERSON,negative,Василий Жуковский,false,,Историческая личность
+P32,PERSON,negative,Константин Бальмонт,false,,Историческая личность
+P33,PERSON,negative,Валерий Брюсов,false,,Историческая личность
+P34,PERSON,negative,Андрей Белый,false,,Историческая личность
+P35,PERSON,negative,Александр Куприн,false,,Историческая личность
+P36,PERSON,negative,Максим Горький,false,,Историческая личность
+P37,PERSON,negative,Аркадий Гайдар,false,,Историческая личность
+P38,PERSON,negative,Самуил Маршак,false,,Историческая личность
+P39,PERSON,negative,Корней Чуковский,false,,Историческая личность
+P40,PERSON,negative,Алексей Толстой,false,,Историческая личность
+P41,PERSON,negative,Михаил Шолохов,false,,Историческая личность
+P42,PERSON,negative,Александр Солженицын,false,,Историческая личность
+P43,PERSON,negative,Василий Шукшин,false,,Историческая личность
+P44,PERSON,negative,Виктор Астафьев,false,,Историческая личность
+P45,PERSON,negative,Валентин Распутин,false,,Историческая личность
+P46,PERSON,negative,Юрий Олеша,false,,Историческая личность
+P47,PERSON,negative,Илья Ильф,false,,Историческая личность
+P48,PERSON,negative,Евгений Петров,false,,Историческая личность
+P49,PERSON,negative,Аркадий Стругацкий,false,,Историческая личность
+P50,PERSON,negative,Борис Стругацкий,false,,Историческая личность
+P51,PERSON,negative,Стругацкий,false,,Историческая личность
+P52,PERSON,negative,Иван Петров,false,,Обычное имя без контекста
+P53,PERSON,negative,Петров,false,,Одна фамилия без контекста
+P54,PERSON,negative,Иван,false,,Одно имя без контекста
+D01,DATE_OF_BIRTH,positive,Дата рождения 15.03.1990,true,15.03.1990,Числовой формат
+D02,DATE_OF_BIRTH,positive,Дата рождения 1990.03.15,true,1990.03.15,Год первый
+D03,DATE_OF_BIRTH,positive,Дата рождения 03/15/1990,true,03/15/1990,Слеш
+D04,DATE_OF_BIRTH,positive,Дата рождения 15-03-1990,true,15-03-1990,Дефис
+D05,DATE_OF_BIRTH,positive,Дата рождения пятнадцатого марта 1990 года,true,пятнадцатого марта 1990 года,Словами
+D06,DATE_OF_BIRTH,positive,Дата рождения пятнадцатого марта,true,пятнадцатого марта,Словами без года
+D07,DATE_OF_BIRTH,positive,ДАТА РОЖДЕНИЯ 15.03.1990,true,15.03.1990,Верхний регистр
+D08,DATE_OF_BIRTH,positive,Родился 15.03.1990,true,15.03.1990,Контекст родился
+D09,DATE_OF_BIRTH,positive,День рождения 15.03.1990,true,15.03.1990,Контекст день рождения
+D10,DATE_OF_BIRTH,negative,Срок действия до 15.03.1990,false,,Не дата рождения
+D11,DATE_OF_BIRTH,negative,Действует до 01.01.2030,false,,Не дата рождения
+D12,DATE_OF_BIRTH,negative,Истекает 15.05.2024,false,,Не дата рождения
+D13,DATE_OF_BIRTH,negative,Дата выдачи 10.10.2020,false,,Это дата выдачи паспорта
+D14,DATE_OF_BIRTH,negative,Срок годности 12.2025,false,,Не дата рождения
+D15,DATE_OF_BIRTH,negative,Дата окончания 30.06.2026,false,,Не дата рождения
+D16,DATE_OF_BIRTH,negative,Дата рождения 31.02.1990,false,,Невалидная дата
+D17,DATE_OF_BIRTH,negative,Дата рождения 29.02.2023,false,,Не високосный год
+B01,BIRTH_PLACE,positive,Место рождения город Москва,true,город Москва,Место рождения
+B02,BIRTH_PLACE,positive,Родился в городе Санкт-Петербург,true,городе Санкт-Петербург,Родился в городе
+B03,BIRTH_PLACE,positive,Родилась в городе Казань,true,городе Казань,Родилась в городе
+B04,BIRTH_PLACE,positive,Место рождения г. Новосибирск,true,г. Новосибирск,Сокращение г.
+B05,BIRTH_PLACE,negative,Место рождения,false,,Без значения
+B06,BIRTH_PLACE,negative,Родился в 1990 году,false,,Нет места
+PS01,PASSPORT,positive,Паспорт 4509 123456,true,4509 123456,Серия и номер
+PS02,PASSPORT,positive,Паспорт 45 09 123456,true,45 09 123456,Серия с пробелом
+PS03,PASSPORT,positive,Паспорт 4509-123456,true,4509-123456,Серия с дефисом
+PS04,PASSPORT,positive,Паспорт 4509 № 123456,true,4509 № 123456,С №
+PS05,PASSPORT,negative,Серия 45 10,false,,Только серия без номера
+PS06,PASSPORT,negative,Серия и номер паспорта,false,,Служебные слова
+PS07,PASSPORT,negative,Паспорт 0000 000000,false,,Нулевые значения
+C01,CITIZENSHIP,positive,Гражданство Российская Федерация,true,Российская Федерация,Гражданство
+C02,CITIZENSHIP,positive,Гражданин Российской Федерации,true,Российской Федерации,Гражданин
+C03,CITIZENSHIP,positive,Гражданка России,true,России,Гражданка
+C04,CITIZENSHIP,negative,Гражданство,false,,Без значения
+C05,CITIZENSHIP,negative,Гражданин,false,,Без значения
+A01,PASSPORT_AUTHORITY,positive,Кем выдан ГУ МВД России по г. Москве,true,ГУ МВД России по г. Москве,Орган выдачи
+A02,PASSPORT_AUTHORITY,positive,Выдан ОВД района Хамовники,true,ОВД района Хамовники,Выдан
+A03,PASSPORT_AUTHORITY,positive,Орган выдавший УФМС России по г. Москве,true,УФМС России по г. Москве,Орган выдавший
+A04,PASSPORT_AUTHORITY,negative,Кем выдан,false,,Без значения
+A05,PASSPORT_AUTHORITY,negative,Выдан,false,,Без значения
+U01,PASSPORT_UNIT_CODE,positive,Код подразделения 770-123,true,770-123,Код подразделения
+U02,PASSPORT_UNIT_CODE,positive,Подразделение 770-123,true,770-123,Подразделение
+U03,PASSPORT_UNIT_CODE,negative,770-123,false,,Без контекста
+U04,PASSPORT_UNIT_CODE,negative,Код подразделения,false,,Без значения
+I01,PASSPORT_ISSUE_DATE,positive,Дата выдачи 10.05.2015,true,10.05.2015,Дата выдачи
+I02,PASSPORT_ISSUE_DATE,positive,Выдан 10.05.2015,true,10.05.2015,Выдан
+I03,PASSPORT_ISSUE_DATE,negative,Дата выдачи,false,,Без значения
+I04,PASSPORT_ISSUE_DATE,negative,10.05.2015,false,,Без контекста
+L01,DRIVING_LICENSE,positive,Водительское удостоверение 77 15 123456,true,77 15 123456,ВУ
+L02,DRIVING_LICENSE,positive,Водительские права 77 15 123456,true,77 15 123456,Права
+L03,DRIVING_LICENSE,positive,Права 77 15 123456,true,77 15 123456,Права кратко
+L04,DRIVING_LICENSE,negative,77 15 123456,false,,Без контекста
+L05,DRIVING_LICENSE,negative,Водительское удостоверение,false,,Без значения
+AD01,ADDRESS,positive,"Адрес: 101000, город Москва",true,101000,Почтовый индекс
+AD02,ADDRESS,positive,Индекс 101000,true,101000,Индекс
+AD03,ADDRESS,positive,Проживает по адресу 101000,true,101000,Проживает
+AD04,ADDRESS,negative,"Отделение банка по адресу: г. Москва, ул. Тверская, д. 1",false,,Адрес организации
+AD05,ADDRESS,negative,"Банкомат по адресу: ул. Ленина, 10",false,,Адрес организации
+AD06,ADDRESS,negative,"Офис компании: г. Санкт-Петербург, Невский проспект, 28",false,,Адрес организации
+AD07,ADDRESS,negative,"Юридический адрес организации: 123456, г. Москва, ул. Арбат, 5",false,,Адрес организации
+AD08,ADDRESS,negative,"Адрес отделения: г. Казань, ул. Баумана, 15",false,,Адрес организации
+AD09,ADDRESS,negative,"Пункт выдачи: г. Екатеринбург, ул. Малышева, 51",false,,Адрес организации
+AD10,ADDRESS,negative,ул.,false,,Служебное слово
+AD11,ADDRESS,negative,г.,false,,Служебное слово
+AD12,ADDRESS,negative,дом,false,,Служебное слово
+AD13,ADDRESS,negative,квартира,false,,Служебное слово
+AD14,ADDRESS,negative,индекс,false,,Служебное слово
+E01,EMAIL,positive,ivanov@example.com,true,ivanov@example.com,Email
+E02,EMAIL,positive,Иван Петров ivanov@example.com,true,ivanov@example.com,Email в тексте
+E03,EMAIL,positive,IVANOV@EXAMPLE.COM,true,IVANOV@EXAMPLE.COM,Верхний регистр
+E04,EMAIL,negative,example.com,false,,Без @
+E05,EMAIL,negative,ivanov@,false,,Без домена
+E06,EMAIL,negative,@example.com,false,,Без имени
+H01,PHONE,positive,+7 999 123-45-67,true,+7 999 123-45-67,Мобильный
+H02,PHONE,positive,8 999 123-45-67,true,8 999 123-45-67,С 8
+H03,PHONE,positive,+7 (999) 123-45-67,true,+7 (999) 123-45-67,Со скобками
+H04,PHONE,positive,+79991234567,true,+79991234567,Без разделителей
+H05,PHONE,positive,Позвони мне на +7 999 123-45-67,true,+7 999 123-45-67,Контекст позвони
+H06,PHONE,positive,Мой телефон 8 999 123-45-67,true,8 999 123-45-67,Контекст телефон
+H07,PHONE,negative,Горячая линия: 8 800 123-45-67,false,,Бесплатный номер
+H08,PHONE,negative,Служба поддержки +7 495 123-45-67,false,,Общий номер
+H09,PHONE,negative,Контактный центр 8 800 555-35-35,false,,Общий номер
+H10,PHONE,negative,Номер заказа 1234567890,false,,Номер заказа
+H11,PHONE,negative,Заказ № 9876543210,false,,Номер заказа
+H12,PHONE,negative,Артикул 123456789012,false,,Артикул
+H13,PHONE,negative,Номер договора 1234567890,false,,Номер договора
+H14,PHONE,negative,Тикет #1234567890,false,,Тикет
+H15,PHONE,negative,Код заявки 1234567890,false,,Код заявки
+N01,INN,positive,ИНН 7707083893,true,7707083893,ИНН 10 цифр
+N02,INN,positive,ИНН 770708389301,true,770708389301,ИНН 12 цифр
+N03,INN,negative,ИНН 1234567890,false,,Невалидный checksum
+N04,INN,negative,ИНН,false,,Без значения
+N05,INN,negative,Номер счёта 12345678901234567890,false,,"Похоже на карту, не ИНН"
+K01,CARD,positive,Карта 4111111111111111,true,4111111111111111,Тестовая карта Visa
+K02,CARD,positive,Карта 5500000000000004,true,5500000000000004,Тестовая карта Mastercard
+K03,CARD,positive,Карта 4111 1111 1111 1111,true,4111 1111 1111 1111,С пробелами
+K04,CARD,positive,Карта 4111-1111-1111-1111,true,4111-1111-1111-1111,С дефисами
+K05,CARD,negative,Карта 1234567890123456,false,,Невалидный Luhn
+K06,CARD,negative,Номер счёта 12345678901234567890,false,,"Счёт, не карта"
+V01,CVV,positive,CVV 123,true,123,CVV
+V02,CVV,positive,CVC 123,true,123,CVC
+V03,CVV,positive,Код безопасности 123,true,123,Код безопасности
+V04,CVV,negative,Число 123,false,,Без контекста
+V05,CVV,negative,Код 123,false,,Без контекста CVV
+V06,CVV,negative,Сумма 123 руб.,false,,Сумма
+N11,PIN,positive,Пин-код 1234,true,1234,Пин-код
+N12,PIN,positive,Пин код 1234,true,1234,Пин код
+N13,PIN,positive,PIN 1234,true,1234,PIN
+N14,PIN,negative,Число 1234,false,,Без контекста
+N15,PIN,negative,Пароль 1234,false,,Пароль не PIN
+N16,PIN,negative,Код подтверждения 1234,false,,Код подтверждения не PIN
+CH01,CARD_HOLDER,positive,Cardholder IVAN PETROV,true,IVAN PETROV,Cardholder
+CH02,CARD_HOLDER,positive,Card holder IVAN PETROV,true,IVAN PETROV,Card holder
+CH03,CARD_HOLDER,positive,Держатель карты IVAN PETROV,true,IVAN PETROV,Держатель карты
+CH04,CARD_HOLDER,positive,Имя держателя IVAN PETROV,true,IVAN PETROV,Имя держателя
+CH05,CARD_HOLDER,negative,IVAN PETROV,false,,Без контекста
+CH06,CARD_HOLDER,negative,JOHN SMITH,false,,Без контекста
+CH07,CARD_HOLDER,negative,ALEXEY IVANOV,false,,Без контекста
+O01,OVERLAPPING,positive,"Клиент Иванов Иван Иванович, паспорт 4509 123456, тел +7 999 123-45-67",true,,Смешанный документ
+O02,OVERLAPPING,positive,"Иванов Иван Иванович, дата рождения 15.03.1990, место рождения город Москва",true,,Смешанный документ
+O03,OVERLAPPING,positive,"Карта 4111111111111111, CVV 123, держатель IVAN PETROV",true,,Карта + CVV + держатель
+O04,OVERLAPPING,positive,"Паспорт 4509 123456, выдан ГУ МВД России по г. Москве, код подразделения 770-123",true,,Паспорт + орган + код
+O05,OVERLAPPING,negative,Пушкин написал роман в стихах,false,,Ловушка: Пушкин не маскируется
