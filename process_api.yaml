@@ -42,18 +42,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProcessResponse"
-        "409":
-          description: Существующий payload_id использован с неизвестным payload
-        "413":
-          description: Payload превышает допустимый размер
-        "422":
-          description: Отсутствует поле или нарушен тип schema
         "429":
           description: |
             Слишком много запросов. Допустимо под нагрузкой. Проверяющая система применит
-            ожидание и ретраи; если 429 не проходит — это значимый результат.
-        "410":
-          description: payload_id истёк (tombstone)
+            ожидание и ретраи; если 429 не проходит — это значимый результат (решение не держит нагрузку).
+        "4XX":
+          description: Ошибка запроса
         "5XX":
           description: Внутренняя ошибка сервиса
 components:
@@ -79,4 +73,4 @@ components:
         result:
           type: string
           description: Результат обработки (замаскированная строка на прямом шаге, исходная — на обратном).
-          example: "Клиент __PII_PERSON_1__, паспорт __PII_PASSPORT_1__"
+          example: "Клиент И. И. И., паспорт 45** ****56"

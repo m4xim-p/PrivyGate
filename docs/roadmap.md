@@ -25,7 +25,8 @@ Roadmap отражает порядок работ, но не заменяет �
 - [x] Admission control, `429` и `Retry-After`.
 - [x] Safe logs без payload/mapping.
 - [ ] Раздельная валидация payload bytes и estimated tokens без допущения «100k = 400 КБ».
-- [ ] OpenAPI-спецификация `process_api.yaml` (контракт `/process`).
+- [x] OpenAPI-спецификация `process_api.yaml` из Приложения A.
+- [ ] Автоматический drift test между `process_api.yaml`, FastAPI schema и contract models.
 - [x] README curl examples.
 
 Критерий готовности: контрактные tests проходят; первый/повторный masking и
@@ -52,7 +53,8 @@ demasking детерминированы; конфликт не изменяет
 
 - [x] Rate-controlled load test для `/process` (`scripts/load_test_process.py`).
 - [ ] Подтверждение пика 1000 RPS на целевой конфигурации (сейчас ~628 RPS при keepalive=10; 1000 RPS НЕ доказан).
-- [ ] Профиль нагрузки: ramp-up, средняя ~330 RPS, пики 1000 RPS, до 200 connections.
+- [ ] Профиль нагрузки: ступенчатый разгон до 1000 RPS с удержанием, до 200 connections;
+  дополнительно сверять средний RPS (~330 по уточнению организаторов).
 - [ ] Mean/p50/p95/p99, RPS, TPS, error/429 и cache-hit metrics.
 - [ ] Равное количество masking и demasking запросов с последовательной парой.
 - [ ] Baseline single-process in-memory store.

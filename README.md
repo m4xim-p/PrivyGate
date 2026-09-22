@@ -17,8 +17,8 @@
 - [roadmap](docs/roadmap.md);
 - [архитектурные решения](docs/adr/).
 
-`POST /process` является обязательным целевым контрактом AlfaSonar и пока не
-реализован. Существующий `POST /v1/chat/completions` остаётся продуктовым и
+`POST /process` реализует обязательный контракт AlfaSonar. Существующий
+`POST /v1/chat/completions` остаётся продуктовым и
 демонстрационным LLM-proxy интерфейсом; оба endpoint должны использовать одно
 PII-ядро.
 

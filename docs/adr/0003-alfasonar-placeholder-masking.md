@@ -11,6 +11,17 @@
 штрафуется сильнее false positive, но избыточное masking неперсонального текста также
 штрафуется.
 
+## Источники решения
+
+- Приложения A/B: [`../source/track-specification.txt`](../source/track-specification.txt).
+- Сохранённые ответы организаторов:
+  [`../source/organizer-clarifications.txt`](../source/organizer-clarifications.txt).
+
+Организаторы прямо подтвердили, что эталонной маски не существует, masking
+сравнивается с original, replacement может состоять из любых символов/групп символов,
+а его длина не влияет на score. Поэтому пример частичной маски в OpenAPI является
+примером, а не обязательным форматом.
+
 ## Решение
 
 Для default evaluation profile `alfasonar` оставить typed placeholders:

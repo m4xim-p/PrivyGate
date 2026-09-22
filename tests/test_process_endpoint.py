@@ -89,6 +89,34 @@ def test_process_missing_field_returns_422() -> None:
     asyncio.run(run())
 
 
+def test_process_accepts_empty_payload_id_as_contract_string() -> None:
+    """Official OpenAPI constrains payload_id by type only, without minLength."""
+    _init_service()
+
+    async def run() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://gateway",
+        ) as client:
+            payload = "Иванов Иван Иванович"
+            masked_resp = await client.post(
+                "/process",
+                json={"payload": payload, "payload_id": ""},
+            )
+            assert masked_resp.status_code == 200
+            masked = masked_resp.json()["result"]
+            assert masked != payload
+
+            original_resp = await client.post(
+                "/process",
+                json={"payload": masked, "payload_id": ""},
+            )
+            assert original_resp.status_code == 200
+            assert original_resp.json()["result"] == payload
+
+    asyncio.run(run())
+
+
 def test_process_422_does_not_leak_pii() -> None:
     _init_service()
 

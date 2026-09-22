@@ -2,14 +2,14 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 
 class ProcessRequest(BaseModel):
     """Request body for the mandatory /process contract."""
 
     payload: str
-    payload_id: str = Field(min_length=1)
+    payload_id: str
 
 
 class ProcessResponse(BaseModel):
