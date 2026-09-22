@@ -3,6 +3,9 @@ __pycache__/
 .pytest_cache/
 .venv/
 .venv-*/
+.env
+.env.*
+!.env.example
 .idea/
 .DS_Store
 .coverage

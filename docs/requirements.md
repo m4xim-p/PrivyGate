@@ -1,0 +1,105 @@
+# Требования и матрица покрытия
+
+## Цель продукта
+
+PrivyGate защищает персональные данные в цепочке «система-потребитель — LLM»:
+идентифицирует PII, маскирует его до передачи модели и при разрешённой политике
+восстанавливает данные в ответе. Решение должно использоваться и как прозрачный
+LLM proxy, и как отдельный сервис обработки строк по контракту AlfaSonar.
+
+## Целевые показатели
+
+| Показатель | Цель | Текущий статус |
+|---|---:|---|
+| Качество identification/masking/demasking | не менее 95% | Не измерено на golden dataset; пропуски штрафуются сильнее лишних масок |
+| Нагрузка | ramp-up, средняя ~330 RPS, пики до 1000 RPS | Есть базовый concurrency load test для proxy; целевого подтверждения нет |
+| Соединения | до 200 параллельных, последовательные запросы внутри соединения | Не проверено |
+| Latency | не более 1 секунды; фиксируются mean/p50/p95/p99 | Нет benchmark `/process` |
+| Размер текста | до 100 000 токенов | Архитектурно не подтверждено; нельзя заменять требование лимитом ~400 КБ |
+| Расширенный уровень | 2000 RPS | Не реализовано |
+| Автоматический контракт | `POST /process` | Не реализован |
+
+## Обязательные категории PII
+
+Статусы:
+
+- `present` — detector включён в default registry и покрыт unit-тестами;
+- `partial` — реализация есть, но форматы/контекст или quality baseline неполны;
+- `missing` — реализации нет;
+- `validated` — подтверждено на согласованном golden dataset (пока нет таких строк).
+
+| Категория | Кодовый тип | Статус | Основной пробел |
+|---|---|---|---|
+| ФИО | `PERSON` | partial | Optional NER; требуется измерить recall и false positives |
+| Дата рождения | `DATE_OF_BIRTH` | partial | Нужен полный набор форматов и отделение от прочих дат |
+| Место рождения | `BIRTH_PLACE` | partial | Сейчас context/rule extraction; нужен quality baseline |
+| Паспорт РФ | `PASSPORT` | partial | Ограниченный перечень форматов и контекстов |
+| Гражданство | `CITIZENSHIP` | partial | Context extraction может захватывать лишний текст |
+| Орган выдачи паспорта | `PASSPORT_AUTHORITY` | partial | Нужны вариации формулировок и точные границы span |
+| Код подразделения | `PASSPORT_UNIT_CODE` | partial | Нужны negative-context и форматные тесты |
+| Дата выдачи паспорта | `PASSPORT_ISSUE_DATE` | partial | Конфликтует с общим detector дат рождения |
+| Водительское удостоверение | `DRIVING_LICENSE` | partial | Нужны дополнительные допустимые форматы и negatives |
+| Адрес и компоненты | `ADDRESS` | partial | Сейчас уверенно покрывается только часть компонентов |
+| Email | `EMAIL` | present | Требуется corpus-level validation |
+| Телефон | `PHONE` | present | Требуется corpus-level validation контекстных кандидатов |
+| ИНН | `INN` | present | Требуется corpus-level validation; checksum реализован |
+| Номер карты | `CARD` | present | Требуется corpus-level validation; Luhn реализован |
+| CVV/CVC | `CVV` | partial | Нужны комбинационные правила с картой |
+| PIN-код | `PIN` | partial | Нужны комбинационные правила с картой |
+| Имя держателя карты | `CARD_HOLDER` | partial | Сейчас ориентировано на uppercase Latin и явный контекст |
+
+Дополнительно реализован `SNILS` с checksum, хотя он не входит в обязательные 17
+категорий текущего задания.
+
+## Функциональные требования
+
+| Требование | Статус | Комментарий |
+|---|---|---|
+| Request-scoped masking/demasking | present | Используется LLM proxy |
+| Boundary-safe streaming demasking | present | Placeholder может пересекать chunks |
+| `POST /process` | missing | P0 в roadmap |
+| Idempotency по `payload_id` | missing | Требуется для retries AlfaSonar |
+| Конфигурация типов PII по потребителю | missing | Нужен policy registry |
+| Включение/отключение потребителей | missing | Нужен allowlist/evaluation profile |
+| Демаскирование по политике потребителя | missing | Сейчас всегда выполняется proxy-потоком |
+| Маска AlfaSonar | present | Typed placeholders допустимы; нужно измерить точность PII spans |
+| Выбор masking strategy по потребителю | missing | Дополнительная возможность, не нужна для базового scorer |
+| Независимость от регистра | partial | Реализовано не во всех detector одинаково |
+| Контекстные комбинационные правила | partial | Есть context scoring, нет общего policy engine |
+| Ловушки «Пушкин» и адрес банка | partial | Есть known-person suppression; адрес организации не решён системно |
+| Безопасные логи типов PII | present | Нельзя считать заменой metrics |
+| Latency/RPS/TPS metrics | partial | Latency логируется, RPS/TPS endpoint отсутствует |
+| Ошибки и деградация | partial | Есть upstream errors; fail-closed policy не оформлена |
+| Ограниченный список систем | partial | Для product API отсутствует; evaluation `/process` явно освобождён от auth |
+
+## Нефункциональные ограничения
+
+- Runtime inference должен выполняться локально в защищённом контуре.
+- Raw PII, prompt и mapping не попадают в production logs или metrics.
+- Архитектура должна добавлять detector через registry, не через изменения endpoint.
+- `/process` должен выдерживать retries, возвращать `429` с `Retry-After` при
+  контролируемой перегрузке и не зависать до hard timeout.
+- `429` не считается ошибкой checker, но учитывается в статистике и не должен быть
+  постоянным состоянием.
+- RPS считается по отдельным HTTP-запросам; masking и demasking представлены примерно
+  поровну.
+- На demasking checker передаёт без изменений маску, полученную от сервиса.
+- Любая replacement-группа допустима, длина маски не влияет на score. Полное скрытие
+  PII предпочтительнее частичного; захват служебных слов и blanket masking штрафуются.
+- Для масштабирования stateful `/process` требуется согласованная стратегия state store.
+- Store ограничивается по числу entries и суммарному приблизительному размеру в байтах;
+  после demasking session кратко сохраняется для безопасного retry.
+- Все примеры и fixtures содержат только синтетические данные.
+
+## Не является текущей целью
+
+- Kubernetes, Kafka и сложная распределённая инфраструктура без измеренной необходимости.
+- Внешняя генеративная LLM для обнаружения PII.
+- Production-ready банковская сертификация в рамках MVP.
+- Дублирование PII pipeline ради отдельного endpoint.
+
+## Правило обновления
+
+Изменение статуса на `present` требует unit/integration tests. Статус `validated`
+разрешён только после сохранения воспроизводимого отчёта quality evaluation с
+описанием dataset, метрик и версии конфигурации.

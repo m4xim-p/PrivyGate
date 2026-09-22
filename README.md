@@ -1,9 +1,26 @@
 # PrivyGate
 
-Учебный MVP privacy-preserving LLM proxy на FastAPI. Gateway обнаруживает email,
-российские номера телефонов, паспорта, СНИЛС, ИНН и банковские карты через
-rule-based detectors, маскирует PII, выбирает один из трёх mock LLM через Round
-Robin, потоково проксирует ответ и восстанавливает PII перед отправкой клиенту.
+Учебный MVP privacy-preserving LLM proxy на FastAPI. Gateway использует
+расширяемый набор rule-based detectors и optional локальный NER, маскирует PII,
+выбирает один из трёх mock LLM через Round Robin, потоково проксирует ответ и
+восстанавливает PII перед отправкой клиенту.
+
+## Инженерная документация
+
+Перед разработкой прочитайте [AGENTS.md](AGENTS.md). Канонические документы:
+
+- [требования и матрица покрытия](docs/requirements.md);
+- [архитектура](docs/architecture.md);
+- [контракт автоматической проверки](docs/evaluation-contract.md);
+- [обязательная security policy](SECURITY.md) и
+  [подробная модель угроз](docs/security.md);
+- [roadmap](docs/roadmap.md);
+- [архитектурные решения](docs/adr/).
+
+`POST /process` является обязательным целевым контрактом AlfaSonar и пока не
+реализован. Существующий `POST /v1/chat/completions` остаётся продуктовым и
+демонстрационным LLM-proxy интерфейсом; оба endpoint должны использовать одно
+PII-ядро.
 
 ## Архитектура
 
