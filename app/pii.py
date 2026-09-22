@@ -202,6 +202,14 @@ class PassportDetector:
 
     def __init__(self, confidence: float = 0.99) -> None:
         self._confidence = confidence
+        self._driving_context = ContextConfig(
+            positive_context_weights={
+                "водительское удостоверение": 0.99,
+                "водительские права": 0.99,
+                "права": 0.99,
+                "удостоверение": 0.99,
+            },
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
         matches: list[PIIMatch] = []
@@ -210,13 +218,18 @@ class PassportDetector:
             passport_number = match.group("number")
             if region == 0 or passport_number == "000000":
                 continue
+            confidence = self._confidence
+            if _context_confidence(
+                text, match.start(), match.end(), self._driving_context
+            ) >= 0.99:
+                confidence = 0.50
             matches.append(
                 PIIMatch(
                     pii_type=self.pii_type,
                     value=match.group(0),
                     start=match.start(),
                     end=match.end(),
-                    confidence=self._confidence,
+                    confidence=confidence,
                 )
             )
         return matches
@@ -407,6 +420,16 @@ def _boundary_multiplier(between: str, config: ContextConfig) -> float:
     return 1.0
 
 
+def _is_abbreviation_continuation(text: str, period_index: int) -> bool:
+    """Return True when a period starts an abbreviation like 'г.' or 'ул.'."""
+    next_index = period_index + 1
+    while next_index < len(text) and text[next_index] in " \t":
+        next_index += 1
+    if next_index >= len(text):
+        return False
+    return text[next_index].isalpha()
+
+
 def _context_confidence(
     text: str,
     start: int,
@@ -508,8 +531,6 @@ class DateOfBirthDetector:
                 "родился": 0.35,
                 "родилась": 0.35,
                 "день рождения": 0.35,
-                "дата выдачи": 0.40,
-                "выдан": 0.30,
             },
             negative_context_weights={
                 "срок действия": 0.55,
@@ -609,7 +630,7 @@ class BirthPlaceDetector:
         normalized = text.casefold()
         for phrase in self.config.positive_context_weights:
             for marker in re.finditer(re.escape(phrase.casefold()), normalized):
-                start = marker.end()
+                start = self._trim_start(text, marker.end())
                 end = self._place_end(text, start)
                 if end <= start:
                     continue
@@ -628,9 +649,24 @@ class BirthPlaceDetector:
         return matches
 
     @staticmethod
+    def _trim_start(text: str, start: int) -> int:
+        while start < len(text) and text[start] in " \t":
+            start += 1
+        return start
+
+    @staticmethod
     def _place_end(text: str, start: int) -> int:
         end = start
-        while end < len(text) and text[end] not in ",.;!?\n":
+        while end < len(text):
+            character = text[end]
+            if character in ",;!?\n":
+                break
+            if character == ".":
+                # Keep abbreviations like "г." and "ул." inside the value.
+                if end + 1 < len(text) and text[end + 1].isalpha():
+                    end += 1
+                    continue
+                break
             end += 1
         return end
 
@@ -659,7 +695,7 @@ class CitizenshipDetector:
         normalized = text.casefold()
         for phrase in self.config.positive_context_weights:
             for marker in re.finditer(re.escape(phrase.casefold()), normalized):
-                start = marker.end()
+                start = self._trim_start(text, marker.end())
                 end = self._value_end(text, start)
                 if end <= start:
                     continue
@@ -676,9 +712,24 @@ class CitizenshipDetector:
         return matches
 
     @staticmethod
+    def _trim_start(text: str, start: int) -> int:
+        while start < len(text) and text[start] in " \t":
+            start += 1
+        return start
+
+    @staticmethod
     def _value_end(text: str, start: int) -> int:
         end = start
-        while end < len(text) and text[end] not in ",.;!?\n":
+        while end < len(text):
+            character = text[end]
+            if character in ",;!?\n":
+                break
+            if character == ".":
+                # Keep abbreviations like "г. Москва" and "ул. Ленина" inside.
+                if _is_abbreviation_continuation(text, end):
+                    end += 1
+                    continue
+                break
             end += 1
         return end
 
@@ -712,7 +763,7 @@ class PassportAuthorityDetector:
         normalized = text.casefold()
         for phrase in self.config.positive_context_weights:
             for marker in re.finditer(re.escape(phrase.casefold()), normalized):
-                start = marker.end()
+                start = self._trim_start(text, marker.end())
                 end = self._value_end(text, start)
                 if end <= start:
                     continue
@@ -729,9 +780,24 @@ class PassportAuthorityDetector:
         return matches
 
     @staticmethod
+    def _trim_start(text: str, start: int) -> int:
+        while start < len(text) and text[start] in " \t":
+            start += 1
+        return start
+
+    @staticmethod
     def _value_end(text: str, start: int) -> int:
         end = start
-        while end < len(text) and text[end] not in ",.;!?\n":
+        while end < len(text):
+            character = text[end]
+            if character in ",;!?\n":
+                break
+            if character == ".":
+                # Keep abbreviations like "г. Москва" and "ул. Ленина" inside.
+                if _is_abbreviation_continuation(text, end):
+                    end += 1
+                    continue
+                break
             end += 1
         return end
 

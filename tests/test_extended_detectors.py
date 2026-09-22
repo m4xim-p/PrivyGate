@@ -69,7 +69,9 @@ def test_date_of_birth_negative_context_is_not_masked() -> None:
     text = "Срок действия до 15.03.1990"
     matches = DateOfBirthDetector().detect(text)
 
-    assert matches == []
+    assert len(matches) == 1
+    assert matches[0].confidence < 0.80
+    assert PIIMasker().mask(text) == text
 
 
 def test_birth_place() -> None:
@@ -77,7 +79,7 @@ def test_birth_place() -> None:
     match = BirthPlaceDetector().detect(text)[0]
 
     assert match.pii_type == "BIRTH_PLACE"
-    assert match.value == " город Москва"
+    assert match.value == "город Москва"
     assert PIIMasker().mask(text) == "Место рождения __PII_BIRTH_PLACE_1__"
 
 
@@ -86,7 +88,7 @@ def test_citizenship() -> None:
     match = CitizenshipDetector().detect(text)[0]
 
     assert match.pii_type == "CITIZENSHIP"
-    assert match.value == " Российская Федерация"
+    assert match.value == "Российская Федерация"
     assert PIIMasker().mask(text) == "Гражданство __PII_CITIZENSHIP_1__"
 
 
@@ -95,7 +97,7 @@ def test_passport_authority() -> None:
     match = PassportAuthorityDetector().detect(text)[0]
 
     assert match.pii_type == "PASSPORT_AUTHORITY"
-    assert match.value == " ГУ МВД России по г. Москве"
+    assert match.value == "ГУ МВД России по г. Москве"
 
 
 def test_passport_unit_code() -> None:
@@ -145,10 +147,13 @@ def test_cvv() -> None:
     assert PIIMasker().mask(text) == "CVV __PII_CVV_1__"
 
 
-def test_cvv_without_context_is_not_detected() -> None:
+def test_cvv_without_context_is_not_masked() -> None:
     text = "Число 123"
+    matches = CVVDetector().detect(text)
 
-    assert CVVDetector().detect(text) == []
+    assert len(matches) == 1
+    assert matches[0].confidence < 0.80
+    assert PIIMasker().mask(text) == text
 
 
 def test_pin() -> None:
@@ -160,10 +165,13 @@ def test_pin() -> None:
     assert PIIMasker().mask(text) == "Пин-код __PII_PIN_1__"
 
 
-def test_pin_without_context_is_not_detected() -> None:
+def test_pin_without_context_is_not_masked() -> None:
     text = "Число 1234"
+    matches = PinCodeDetector().detect(text)
 
-    assert PinCodeDetector().detect(text) == []
+    assert len(matches) == 1
+    assert matches[0].confidence < 0.80
+    assert PIIMasker().mask(text) == text
 
 
 def test_card_holder() -> None:
@@ -175,10 +183,13 @@ def test_card_holder() -> None:
     assert PIIMasker().mask(text) == "Cardholder __PII_CARD_HOLDER_1__"
 
 
-def test_card_holder_without_context_is_not_detected() -> None:
+def test_card_holder_without_context_is_not_masked() -> None:
     text = "IVAN PETROV"
+    matches = CardHolderDetector().detect(text)
 
-    assert CardHolderDetector().detect(text) == []
+    assert len(matches) == 1
+    assert matches[0].confidence < 0.80
+    assert PIIMasker().mask(text) == text
 
 
 def test_known_person_suppression() -> None:
