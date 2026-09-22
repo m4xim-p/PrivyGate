@@ -520,6 +520,7 @@ _ADDRESS_ABBREVIATIONS = frozenset(
     {
         "г", "ул", "д", "кв", "п", "обл", "с", "ст", "к", "р-н", "пер",
         "пр-т", "просп", "ш", "б-р", "наб", "пл", "корп", "стр", "оф",
+        "в", "о", "мкр", "тер", "уч",
     }
 )
 
@@ -1090,8 +1091,13 @@ class AddressDetector:
             positive_context_weights={
                 "адрес": 0.40,
                 "адресу": 0.40,
+                "адрес регистрации": 0.40,
+                "место регистрации": 0.40,
+                "регистрация": 0.40,
+                "регистрации": 0.40,
                 "проживает": 0.35,
                 "проживает по адресу": 0.40,
+                "проживающий": 0.35,
                 "зарегистрирован": 0.35,
                 "зарегистрирована": 0.35,
                 "зарегистрирован по адресу": 0.40,
@@ -1108,12 +1114,21 @@ class AddressDetector:
                 "lives at": 0.40,
             },
         )
+        self._max_address_length = 200
         self._full_address_markers = (
             "адрес",
             "адресу",
+            "адрес регистрации",
+            "место регистрации",
+            "регистрация",
+            "регистрации",
             "проживает по адресу",
+            "проживает",
+            "проживающий",
             "зарегистрирован по адресу",
             "зарегистрирована по адресу",
+            "зарегистрирован",
+            "зарегистрирована",
             "прописка",
             "address",
             "registered at",
@@ -1156,14 +1171,24 @@ class AddressDetector:
         """Capture the full address block after an explicit address marker."""
         matches: list[PIIMatch] = []
         normalized = text.casefold()
-        for marker in self._full_address_markers:
+        # Longer (more specific) markers first so that e.g. "зарегистрирован
+        # по адресу" wins over the bare "зарегистрирован" inside it.
+        markers = sorted(self._full_address_markers, key=len, reverse=True)
+        covered: list[tuple[int, int]] = []
+        for marker in markers:
             for found in re.finditer(re.escape(marker), normalized):
                 if self._is_organization_address(normalized, found.start()):
+                    continue
+                # Skip a marker that starts inside an already handled marker.
+                if any(found.start() < c_end and found.end() > c_start
+                       for c_start, c_end in covered):
                     continue
                 start = self._trim_start(text, found.end())
                 end = self._address_end(text, start)
                 if end <= start:
                     continue
+                if end - start > self._max_address_length:
+                    end = start + self._max_address_length
                 confidence = _context_confidence(text, start, end, self.config)
                 matches.append(
                     PIIMatch(
@@ -1174,6 +1199,7 @@ class AddressDetector:
                         confidence=confidence,
                     )
                 )
+                covered.append((found.start(), found.end()))
         return matches
 
     def _is_organization_address(self, normalized: str, marker_start: int) -> bool:
@@ -1193,7 +1219,7 @@ class AddressDetector:
         end = start
         while end < len(text):
             character = text[end]
-            if character == "\n":
+            if character in "\n!?;":
                 break
             if character == ".":
                 # A period ends the address unless it is a known address

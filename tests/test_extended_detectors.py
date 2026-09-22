@@ -137,6 +137,54 @@ def test_address_postal_code() -> None:
     assert PIIMasker().mask(text) == "Адрес: __PII_ADDRESS_1__"
 
 
+def test_address_registration_marker() -> None:
+    text = "Регистрация: 607635, Нижегородская область, Нижний Новгород, п. Новики, ул. Ясная, д. 135."
+    matches = AddressDetector().detect(text)
+
+    assert any(m.pii_type == "ADDRESS" for m in matches)
+    assert PIIMasker().mask(text) == (
+        "Регистрация: __PII_ADDRESS_1__."
+    )
+
+
+def test_address_registered_at_marker() -> None:
+    text = "Зарегистрирован по адресу: 111677, г. Москва, ул. Рождественская, д. 8, кв. 253"
+    matches = AddressDetector().detect(text)
+
+    assert any(m.pii_type == "ADDRESS" for m in matches)
+    assert PIIMasker().mask(text) == (
+        "Зарегистрирован по адресу: __PII_ADDRESS_1__"
+    )
+
+
+def test_address_without_postal_code() -> None:
+    text = "Регистрация: Московская область, г. Подольск, ул. Ленина, д. 18, кв. 72"
+    matches = AddressDetector().detect(text)
+
+    assert any(m.pii_type == "ADDRESS" for m in matches)
+    assert PIIMasker().mask(text) == (
+        "Регистрация: __PII_ADDRESS_1__"
+    )
+
+
+def test_address_ends_at_sentence_boundary() -> None:
+    text = "Регистрация: 101000, г. Москва, ул. Тверская, д. 1. Позвоните мне."
+    matches = AddressDetector().detect(text)
+
+    assert any(m.pii_type == "ADDRESS" for m in matches)
+    masked = PIIMasker().mask(text)
+    assert masked == "Регистрация: __PII_ADDRESS_1__. Позвоните мне."
+
+
+def test_address_with_abbreviation_inside() -> None:
+    text = "Проживает по адресу: 196210, г. Санкт-Петербург, ул. 13-я линия В.О., д. 32, кв. 30."
+    matches = AddressDetector().detect(text)
+
+    assert any(m.pii_type == "ADDRESS" for m in matches)
+    masked = PIIMasker().mask(text)
+    assert masked == "Проживает по адресу: __PII_ADDRESS_1__."
+
+
 def test_cvv() -> None:
     text = "CVV 123"
     match = CVVDetector().detect(text)[0]
