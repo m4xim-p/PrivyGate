@@ -14,7 +14,12 @@ from fastapi.responses import StreamingResponse
 
 from app.models import ChatCompletionRequest
 from app.ner import NERDetector, TransformersNERBackend
-from app.pii import PIIDetector, PIIMasker, default_rule_detectors
+from app.pii import (
+    PIIDetector,
+    PIIMasker,
+    NameDetector,
+    default_rule_detectors,
+)
 from app.proxy import open_upstream_stream
 from app.routing import RoundRobinRouter
 
@@ -88,6 +93,7 @@ async def lifespan(app: FastAPI):
             NERDetector(
                 ner_backend,
                 min_confidence=float(os.getenv("NER_MIN_CONFIDENCE", "0.80")),
+                precheck=NameDetector(),
             )
         )
         logger.info(

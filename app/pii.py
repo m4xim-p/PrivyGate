@@ -5,6 +5,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from app.data.russian_names import FIRST_NAMES, PATRONYMICS, SURNAMES
+
 
 EMAIL_PATTERN = re.compile(
     r"(?<![\w.+-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+"
@@ -1073,6 +1075,94 @@ class CardHolderDetector:
 
 
 # ---------------------------------------------------------------------------
+# Russian full-name detection (rule-based pre-check for NER).
+# ---------------------------------------------------------------------------
+
+# Cheap pre-filter: a run of 1-4 capitalized Russian words. This regex is
+# intentionally broad; the dataset membership check does the real filtering.
+NAME_CANDIDATE_PATTERN = re.compile(
+    r"(?<![а-яёa-z0-9])"
+    r"(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?)"
+    r"(?:\s+[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?){0,3}"
+    r"(?![а-яёa-z0-9])"
+)
+
+
+class NameDetector:
+    """Detect Russian full names (ФИО) from a local dataset without NER.
+
+    The detector is a cheap rule-based pre-check: it finds runs of capitalized
+    Russian words and validates them against the offline dataset of first
+    names, surnames and patronymics. When it produces matches, the caller can
+    skip the expensive NER inference for the same text.
+    """
+
+    pii_type = "PERSON"
+
+    def __init__(self, confidence: float = 0.95) -> None:
+        self._confidence = confidence
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for candidate in NAME_CANDIDATE_PATTERN.finditer(text):
+            tokens = candidate.group(0).split()
+            if not self._is_full_name(tokens):
+                continue
+            if is_known_person(candidate.group(0)):
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=candidate.group(0),
+                    start=candidate.start(),
+                    end=candidate.end(),
+                    confidence=self._confidence,
+                )
+            )
+        return matches
+
+    @staticmethod
+    def _is_full_name(tokens: Sequence[str]) -> bool:
+        """Return True when a token run looks like a Russian full name."""
+        if not tokens:
+            return False
+        lowered = [token.casefold() for token in tokens]
+
+        # Single token: only a surname or a first name is too weak alone.
+        if len(lowered) == 1:
+            return False
+
+        # Two tokens: "Имя Фамилия" or "Фамилия Имя".
+        if len(lowered) == 2:
+            first, second = lowered
+            return (first in FIRST_NAMES and _is_surname(second)) or (
+                _is_surname(first) and second in FIRST_NAMES
+            )
+
+        # Three tokens: "Фамилия Имя Отчество" or "Имя Отчество Фамилия".
+        if len(lowered) == 3:
+            a, b, c = lowered
+            if _is_surname(a) and b in FIRST_NAMES and c in PATRONYMICS:
+                return True
+            if a in FIRST_NAMES and b in PATRONYMICS and _is_surname(c):
+                return True
+            return False
+
+        # Four tokens: "Фамилия Имя Отчество" plus an extra token is unlikely.
+        return False
+
+
+def _is_surname(token: str) -> bool:
+    """Return True for a masculine or feminine Russian surname form."""
+    if token in SURNAMES:
+        return True
+    # Feminine surnames usually end in -а/-я (Смирнова, Иванова, Кузнецова).
+    if token.endswith(("а", "я")) and token[:-1] in SURNAMES:
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Known-person suppression for NER PERSON matches.
 # ---------------------------------------------------------------------------
 
@@ -1198,6 +1288,7 @@ def default_rule_detectors() -> tuple[PIIDetector, ...]:
         CVVDetector(),
         PinCodeDetector(),
         CardHolderDetector(),
+        NameDetector(),
     )
 
 

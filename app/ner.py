@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.pii import PIIMatch, is_known_person
+from app.pii import PIIDetector, PIIMatch, is_known_person
 
 
 logger = logging.getLogger("privygate.ner")
@@ -38,10 +38,12 @@ class NERDetector:
         *,
         min_confidence: float = 0.80,
         accepted_labels: Sequence[str] = ("PER", "PERSON"),
+        precheck: PIIDetector | None = None,
     ) -> None:
         self._backend = backend
         self._min_confidence = min_confidence
         self._accepted_labels = frozenset(label.upper() for label in accepted_labels)
+        self._precheck = precheck
 
     def detect(self, text: str) -> list[PIIMatch]:
         started_at = time.perf_counter()
@@ -49,7 +51,13 @@ class NERDetector:
         predictions: Sequence[NERTokenPrediction] = ()
         matches: list[PIIMatch] = []
         suspicious_person_span = False
+        precheck_skipped = False
         try:
+            if self._precheck is not None and self._precheck.detect(text):
+                # The rule-based pre-check already found names; skip the
+                # expensive NER inference for this text.
+                precheck_skipped = True
+                return matches
             predictions = self._backend.predict(text)
             matches, suspicious_person_span = self._person_matches(text, predictions)
             return matches
@@ -60,12 +68,13 @@ class NERDetector:
             logger.info(
                 "ner_inference_finished status=%s latency_ms=%.1f "
                 "token_predictions=%d person_entities=%d "
-                "suspicious_person_span=%s",
+                "suspicious_person_span=%s precheck_skipped=%s",
                 status,
                 (time.perf_counter() - started_at) * 1000,
                 len(predictions),
                 len(matches),
                 str(suspicious_person_span).lower(),
+                str(precheck_skipped).lower(),
             )
 
     def _person_matches(
