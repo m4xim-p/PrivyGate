@@ -868,8 +868,10 @@ class CitizenshipDetector:
             if character in ",;!?\n":
                 break
             if character == ".":
-                # Keep abbreviations like "г. Москва" and "ул. Ленина" inside.
-                if _is_abbreviation_continuation(text, end):
+                # A period ends the citizenship value unless it is an
+                # abbreviation inside the value (e.g. "г. Москва").
+                if _is_abbreviation_continuation(text, end) \
+                        and not _is_sentence_end(text, end):
                     end += 1
                     continue
                 break
