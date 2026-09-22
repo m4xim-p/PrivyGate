@@ -1,75 +1,39 @@
 # CI/CD
 
-Пайплайн: `.github/workflows/ci-cd.yml`.
+Пайплайн — `.github/workflows/ci-cd.yml`.
 
-- **CI** — на каждый push и PR: установка зависимостей и `pytest`.
-- **CD** — на push в `main` (после зелёных тестов): SSH на сервер, `git pull`,
-  `docker compose up -d --build`, проверка `/health`.
+- **CI** (`Tests`) — на каждый push и PR: `pip install -e '.[dev]'` + `pytest`.
+- **CD** (`Deploy to server`) — на push в `main` после зелёных тестов:
+  1. Actions копирует файлы на сервер по `rsync` (`.git`, `.env` исключены);
+  2. на сервере выполняется `docker compose up -d --build`;
+  3. проверяется `http://127.0.0.1:8000/health` (при провале — логи в output).
 
-## Что нужно сделать один раз
+Серверу **не нужен** доступ к GitHub — код приезжает из Actions. Секреты (`.env`)
+и данные лежат только на сервере и деплоем не перетираются.
 
-### 1. Сервер
-
-Установить Docker с Compose-плагином (Ubuntu 24.04):
+## Разово на сервере
 
 ```bash
+# Docker + compose plugin
 curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker "$USER"
+
+# каталог деплоя
+mkdir -p /srv/privygate
 ```
 
-Клонировать репозиторий в каталог деплоя (путь задашь в `DEPLOY_PATH`), например
-`/srv/privygate`:
+## Разово в GitHub
 
-```bash
-sudo mkdir -p /srv && sudo chown "$USER" /srv
-git clone git@github.com:m4xim-p/PrivyGate.git /srv/privygate
-cd /srv/privygate && docker compose up -d --build
-```
+**Settings → Secrets and variables → Actions → New repository secret:**
 
-### 2. Доступ сервера к приватному репо (Deploy Key)
+| Секрет        | Значение                                  |
+|---------------|-------------------------------------------|
+| `SSH_HOST`    | адрес сервера                             |
+| `SSH_USER`    | пользователь SSH                          |
+| `SSH_KEY`     | приватный SSH-ключ для доступа Actions    |
+| `SSH_PORT`    | порт SSH (не задавать, если 22)           |
+| `DEPLOY_PATH` | путь на сервере, напр. `/srv/privygate`    |
 
-На сервере:
+Публичную часть `SSH_KEY` нужно добавить в `~/.ssh/authorized_keys`
+пользователя `SSH_USER` на сервере.
 
-```bash
-ssh-keygen -t ed25519 -C "privygate-deploy" -f ~/.ssh/privygate_deploy -N ""
-cat ~/.ssh/privygate_deploy.pub
-```
-
-Публичный ключ → GitHub → репозиторий → **Settings → Deploy keys → Add deploy key**
-(без галочки "Allow write access").
-
-Прописать ключ для GitHub:
-
-```bash
-cat >> ~/.ssh/config <<'EOF'
-Host github.com
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/privygate_deploy
-  IdentitiesOnly yes
-EOF
-```
-
-### 3. Доступ GitHub Actions к серверу
-
-На сервере создать ключ, которым Actions будет заходить:
-
-```bash
-ssh-keygen -t ed25519 -C "github-actions" -f ~/.ssh/gh_actions -N ""
-cat ~/.ssh/gh_actions.pub >> ~/.ssh/authorized_keys
-cat ~/.ssh/gh_actions   # приватный ключ -> в секрет SSH_KEY
-```
-
-### 4. Секреты репозитория
-
-GitHub → **Settings → Secrets and variables → Actions → New repository secret**:
-
-| Секрет         | Значение                          |
-|----------------|-----------------------------------|
-| `SSH_HOST`     | IP или домен сервера              |
-| `SSH_USER`     | пользователь SSH                  |
-| `SSH_KEY`      | приватный ключ `gh_actions`       |
-| `SSH_PORT`     | порт SSH (не задавать, если 22)   |
-| `DEPLOY_PATH`  | путь к клону, напр. `/srv/privygate` |
-
-После этого любой push в `main` деплоится автоматически.
+Дальше любой push в `main` деплоится автоматически: `git push origin main`.

@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 1) Тесты на каждый push/PR
+  # 1) Тесты на каждый push и PR
   test:
     name: Tests
     runs-on: ubuntu-latest
@@ -30,44 +30,53 @@ jobs:
       - name: Run tests
         run: pytest
 
-  # 2) Деплой на сервер только после зелёных тестов и только из main
+  # 2) Деплой на сервер: только после зелёных тестов и только из main
   deploy:
     name: Deploy to server
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
     steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          script_stop: true
-          script: |
-            set -euo pipefail
+      - uses: actions/checkout@v4
 
-            cd "${{ secrets.DEPLOY_PATH }}"
+      - name: Setup SSH
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-            # Обновляем рабочую копию до origin/main
-            git fetch --prune origin main
-            git reset --hard origin/main
+      - name: Sync files to server
+        run: |
+          set -euo pipefail
+          rsync -az --delete \
+            --exclude '.git' --exclude '.venv' --exclude '.env' \
+            --exclude '__pycache__' --exclude '.pytest_cache' \
+            -e "ssh -p $SSH_PORT" \
+            ./ "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
 
-            # Пересобираем и поднимаем стек
-            docker compose up -d --build --remove-orphans
-            docker image prune -f
-
-            # Ждём health у gateway (порт 8000 внутри сервера)
-            for i in $(seq 1 30); do
-              if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
-                echo "gateway healthy"
-                break
-              fi
-              sleep 2
-              if [ "$i" -eq 30 ]; then
-                echo "::error::health check failed"
-                docker compose logs --tail=80
-                exit 1
-              fi
-            done
+      - name: Build, restart and health check
+        run: |
+          set -euo pipefail
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'EOS'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          docker compose up -d --build --remove-orphans
+          docker image prune -f
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+              echo "gateway healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::health check failed"
+          docker compose logs --tail=80
+          exit 1
+          EOS
