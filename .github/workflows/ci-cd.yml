@@ -55,7 +55,7 @@ jobs:
       - name: Sync files to server
         run: |
           set -euo pipefail
-          rsync -az --delete \
+          rsync -rlptz --delete --no-owner --no-group \
             --exclude '.git' --exclude '.venv' --exclude '.env' \
             --exclude '__pycache__' --exclude '.pytest_cache' \
             -e "ssh -p $SSH_PORT" \
