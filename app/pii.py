@@ -24,7 +24,20 @@ FOREIGN_PHONE_PATTERN = re.compile(
 AMBIGUOUS_PHONE_PATTERN = re.compile(r"(?<![0-9])[0-9]{10}(?![0-9])")
 PASSPORT_PATTERN = re.compile(
     r"(?<![0-9])(?P<series>(?P<region>[0-9]{2})[ -]?[0-9]{2})"
-    r"[ \t]+(?:№[ \t]*)?(?P<number>[0-9]{6})(?![0-9])"
+    r"[ \t-]+(?:№[ \t]*)?(?P<number>[0-9]{6})(?![0-9])"
+)
+# Passport with separating words: "серия 4509 номер 123456", "серии 1234 № 123456".
+# Captures the series and number as separate groups so the words "серия"/"номер"
+# (and separators №/#/:/,/spaces) can stay open while the numeric parts are masked.
+PASSPORT_SERIES_NUMBER_PATTERN = re.compile(
+    r"(?<![0-9а-яёa-z])"
+    r"(?:серия|серии|серией)[ \t]*[:#]?[ \t]*"
+    r"(?P<series>(?P<region>[0-9]{2})[ -]?[0-9]{2})"
+    r"[ \t]*[,]?[ \t]*"
+    r"(?:(?:номер|номера|номером)[ \t]*[:#]?[ \t]*|[№#][ \t]*)?"
+    r"(?P<number>[0-9]{6})"
+    r"(?![0-9а-яёa-z])",
+    flags=re.IGNORECASE,
 )
 # Russian foreign passport: 2 digits + 7 digits (e.g. 71 1234567).
 FOREIGN_PASSPORT_PATTERN = re.compile(
@@ -278,6 +291,45 @@ class PassportDetector:
                 )
             )
         matches.extend(self._foreign_passport_matches(text))
+        matches.extend(self._series_number_matches(text))
+        return matches
+
+    def _series_number_matches(self, text: str) -> list[PIIMatch]:
+        """Detect passports written as 'серия XXXX номер XXXXXX'.
+
+        Returns two separate matches (series and number) so the words
+        "серия"/"номер" and separators stay open while the numeric parts are
+        masked. The "серия ... номер ..." pattern itself is strong passport
+        context, so no extra "паспорт" word is required.
+        """
+        matches: list[PIIMatch] = []
+        for match in PASSPORT_SERIES_NUMBER_PATTERN.finditer(text):
+            region = int(match.group("region"))
+            passport_number = match.group("number")
+            if region == 0 or passport_number == "000000":
+                continue
+            series_start = match.start("series")
+            series_end = match.end("series")
+            number_start = match.start("number")
+            number_end = match.end("number")
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group("series"),
+                    start=series_start,
+                    end=series_end,
+                    confidence=self._confidence,
+                )
+            )
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group("number"),
+                    start=number_start,
+                    end=number_end,
+                    confidence=self._confidence,
+                )
+            )
         return matches
 
     def _foreign_passport_matches(self, text: str) -> list[PIIMatch]:
@@ -489,11 +541,29 @@ def _context_influence(
 
 
 def _boundary_multiplier(between: str, config: ContextConfig) -> float:
+    # A period inside an abbreviation (г., ул.) is not a hard boundary.
     if any(boundary in between for boundary in config.hard_context_boundaries):
-        return 0.0
+        # Re-check: ignore periods that are part of abbreviations.
+        cleaned = _strip_abbreviation_periods(between)
+        if any(boundary in cleaned for boundary in config.hard_context_boundaries):
+            return 0.0
     if any(boundary in between for boundary in config.soft_context_boundaries):
         return config.soft_boundary_multiplier
     return 1.0
+
+
+def _strip_abbreviation_periods(text: str) -> str:
+    """Remove periods that are part of abbreviations like 'г.' or 'ул.'."""
+    result = []
+    i = 0
+    while i < len(text):
+        if text[i] == "." and i > 0 and text[i - 1].isalpha():
+            # Period preceded by a letter: abbreviation like 'г.' or 'ул.'.
+            i += 1
+            continue
+        result.append(text[i])
+        i += 1
+    return "".join(result)
 
 
 def _is_abbreviation_continuation(text: str, period_index: int) -> bool:
@@ -787,6 +857,7 @@ class BirthPlaceDetector:
         for phrase in self.config.positive_context_weights:
             for marker in re.finditer(re.escape(phrase.casefold()), normalized):
                 start = self._trim_start(text, marker.end())
+                start = self._skip_place_markers(text, start)
                 end = self._place_end(text, start)
                 if end <= start:
                     continue
@@ -803,6 +874,15 @@ class BirthPlaceDetector:
                     )
                 )
         return matches
+
+    @staticmethod
+    def _skip_place_markers(text: str, start: int) -> int:
+        """Skip service words like 'город', 'городе', 'г.' that are not PII."""
+        lowered = text.casefold()
+        for marker in ("город ", "городе ", "г. ", "г "):
+            if lowered.startswith(marker, start):
+                return start + len(marker)
+        return start
 
     @staticmethod
     def _trim_start(text: str, start: int) -> int:
@@ -1650,6 +1730,7 @@ class PIIMasker:
         self.decisions: list[PIIDecision] = []
         self._counters: dict[str, int] = {}
         self._pii_types: set[str] = set()
+        self._matches: list[PIIMatch] = []
         self._detectors = tuple(
             detectors
             if detectors is not None
@@ -1668,6 +1749,7 @@ class PIIMasker:
             match for match in candidates if match.confidence >= self._min_confidence
         ]
         matches = resolve_overlapping_matches(eligible)
+        self._matches = matches
         selected = set(matches)
         eligible_set = set(eligible)
         self.decisions.extend(
@@ -1707,6 +1789,11 @@ class PIIMasker:
     @property
     def pii_types(self) -> list[str]:
         return sorted(self._pii_types)
+
+    @property
+    def matches(self) -> list[PIIMatch]:
+        """Final resolved matches after overlap resolution (used for masking)."""
+        return list(self._matches)
 
 
 class StreamingDemasker:

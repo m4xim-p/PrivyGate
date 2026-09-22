@@ -43,6 +43,8 @@ demasking детерминированы; конфликт не изменяет
 - [ ] Typed placeholders оставить default `alfasonar`; общий `MaskingPolicy` перенести
   в per-consumer расширения.
 - [ ] Исправление границ context detectors и overlap conflicts.
+- [ ] Поднять api recall (сейчас 0.536, выше порога 0.50, но низкий): FN в
+  сложных предложениях (PASSPORT_ISSUE_DATE, PERSON, ADDRESS, DATE_OF_BIRTH, INN).
 - [ ] Systematic suppression для historical persons и organization addresses.
 - [ ] Combination policy: PIN/CVV вместе с картой.
 

@@ -1,22 +1,40 @@
-"""Golden dataset quality harness.
+"""Golden dataset strict entity/span quality harness.
 
-Runs the golden datasets in ``tests/data/*.csv`` through the default rule-based
-masker and reports precision/recall/F1 plus FP/FN per category.
+Runs the golden datasets in ``tests/data/*.csv`` through the production
+``PIIMasker`` and evaluates the final resolved ``PIIMatch`` spans against a
+canonical annotation of expected entities (``expected_entities`` JSON column).
 
-Datasets are the source of truth for P1 quality work. Known regressions are
-reported (not silently ignored) so the team can track progress toward the 95%
-target. These tests do not fail on known gaps; they assert each dataset is valid
-and that the harness itself works.
+This harness is intentionally strict: a span error or a type error does NOT
+count as a true positive. This prevents the inflated precision/recall that the
+old ``masked != original`` heuristic produced.
+
+Two metrics are kept separate:
+
+* ``EntityMetrics`` — the internal strict entity/span metric keyed on
+  ``(type, start, end)``. This is our own quality signal.
+* ``organizer_approximation`` — a clearly-labelled approximation of the
+  organizers' span-based scorer. It is NOT the official scorer.
+
+Regression checks use a ratchet: they assert the current metrics do not drop
+below the honestly-recomputed baseline. Thresholds are raised only after the
+detectors genuinely improve.
 """
 
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 import pytest
 
-from app.pii import PIIMasker
+from tests.quality_harness import (
+    macro_f1,
+    micro_f1,
+    organizer_approximation,
+    parse_expected_entities,
+    run_harness,
+)
 
 DATA_DIR = Path(__file__).parent / "data"
 DATASETS = [
@@ -47,6 +65,21 @@ REQUIRED_CATEGORIES = {
     "PIN",
     "CARD_HOLDER",
 }
+
+# Ratchet baseline: honestly-recomputed strict metrics on 2026-09-22.
+# These are the current values; they must not regress. Raise them only after
+# the detectors genuinely improve. Do NOT invent higher targets.
+# Updated after harness fix (span/type errors reduce precision/recall, mixed
+# cases attribute to real categories) and passport series/number split.
+BASELINE = {
+    "golden": {"f1": 0.878, "recall": 0.935, "exact_span_accuracy": 0.947},
+    "api": {"f1": 0.626, "recall": 0.536, "exact_span_accuracy": 0.780},
+    "extended": {"f1": 0.857, "recall": 0.913, "exact_span_accuracy": 0.913},
+}
+
+# Absolute floor on critical metrics regardless of dataset (recall-first).
+MIN_RECALL = 0.50
+MIN_EXACT_SPAN_ACCURACY = 0.70
 
 
 def _load_cases(filename: str) -> list[dict[str, str]]:
@@ -89,64 +122,97 @@ def test_dataset_covers_all_required_categories(filename: str, label: str) -> No
 
 
 @pytest.mark.parametrize("filename,label", DATASETS)
-def test_dataset_quality_report(filename: str, label: str) -> None:
-    """Run the dataset and print a quality report (does not fail on gaps)."""
+def test_expected_entities_are_valid(filename: str, label: str) -> None:
+    """Every expected_entities annotation must parse and match the text."""
     cases = _load_cases(filename)
-    masker = PIIMasker()
-    tp = tn = fp = fn = 0
-    span_errors = 0
-    per_category: dict[str, dict[str, int]] = {}
-
     for case in cases:
-        masked = masker.mask(case["text"])
-        expected = case["expected_masked"] == "true"
-        actual = masked != case["text"]
+        raw = case.get("expected_entities", "")
+        entities = parse_expected_entities(raw)
+        expected_masked = case["expected_masked"] == "true"
+        if expected_masked:
+            assert entities, (
+                f"{label} {case['id']}: positive case must annotate entities"
+            )
+        for entity in entities:
+            assert case["text"][entity.start : entity.end] == entity.value, (
+                f"{label} {case['id']}: span {entity.start}:{entity.end} "
+                f"does not match value {entity.value!r}"
+            )
 
-        stats = per_category.setdefault(
-            case["category"], {"tp": 0, "tn": 0, "fp": 0, "fn": 0, "span": 0}
-        )
-        if expected and actual:
-            tp += 1
-            stats["tp"] += 1
-            # Span accuracy: every expected span must be hidden in the mask.
-            for span in _expected_spans(case):
-                if span and span in masked:
-                    span_errors += 1
-                    stats["span"] += 1
-        elif expected and not actual:
-            fn += 1
-            stats["fn"] += 1
-        elif not expected and actual:
-            fp += 1
-            stats["fp"] += 1
-        else:
-            tn += 1
-            stats["tn"] += 1
 
-    precision = tp / (tp + fp) if tp + fp else 0.0
-    recall = tp / (tp + fn) if tp + fn else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-
+@pytest.mark.parametrize("filename,label", DATASETS)
+def test_dataset_quality_report(filename: str, label: str) -> None:
+    """Run the strict harness and print a quality report (does not fail)."""
+    cases = _load_cases(filename)
+    metrics, per_category, _ = run_harness(cases)
     report = [
-        f"{label}_dataset total={len(cases)} tp={tp} tn={tn} fp={fp} fn={fn} "
-        f"span_errors={span_errors}",
-        f"precision={precision:.3f} recall={recall:.3f} f1={f1:.3f}",
+        f"{label}_dataset total={len(cases)} tp={metrics.tp} fp={metrics.fp} "
+        f"fn={metrics.fn} span_errors={metrics.span_errors} "
+        f"type_errors={metrics.type_errors} partial_leaks={metrics.partial_leaks} "
+        f"overmasking={metrics.overmasking}",
+        f"precision={metrics.precision:.3f} recall={metrics.recall:.3f} "
+        f"f1={metrics.f1:.3f} exact_span_accuracy={metrics.exact_span_accuracy:.3f}",
+        f"macro_f1={macro_f1(per_category):.3f} micro_f1={micro_f1(metrics):.3f}",
     ]
     for category in sorted(per_category):
-        s = per_category[category]
-        cat_prec = s["tp"] / (s["tp"] + s["fp"]) if s["tp"] + s["fp"] else 0.0
-        cat_rec = s["tp"] / (s["tp"] + s["fn"]) if s["tp"] + s["fn"] else 0.0
+        m = per_category[category]
         report.append(
-            f"  {category}: tp={s['tp']} fp={s['fp']} fn={s['fn']} "
-            f"span={s['span']} precision={cat_prec:.3f} recall={cat_rec:.3f}"
+            f"  {category}: tp={m.tp} fp={m.fp} fn={m.fn} span={m.span_errors} "
+            f"type={m.type_errors} leak={m.partial_leaks} over={m.overmasking} "
+            f"precision={m.precision:.3f} recall={m.recall:.3f}"
         )
-
     print("\n".join(report))
 
 
-def _expected_spans(case: dict[str, str]) -> list[str]:
-    """Split the expected_span field into individual spans."""
-    raw = case.get("expected_span", "").strip()
-    if not raw or raw == "—":
-        return []
-    return [part.strip() for part in raw.split(";") if part.strip()]
+@pytest.mark.parametrize("filename,label", DATASETS)
+def test_no_regression_vs_baseline(filename: str, label: str) -> None:
+    """Ratchet: metrics must not drop below the honest baseline."""
+    cases = _load_cases(filename)
+    metrics, _, _ = run_harness(cases)
+    baseline = BASELINE[label]
+    assert metrics.f1 >= baseline["f1"] - 0.01, (
+        f"{label}: F1 {metrics.f1:.3f} dropped below baseline {baseline['f1']:.3f}"
+    )
+    assert metrics.recall >= baseline["recall"] - 0.01, (
+        f"{label}: recall {metrics.recall:.3f} dropped below baseline "
+        f"{baseline['recall']:.3f}"
+    )
+    assert metrics.exact_span_accuracy >= baseline["exact_span_accuracy"] - 0.01, (
+        f"{label}: exact span accuracy {metrics.exact_span_accuracy:.3f} dropped "
+        f"below baseline {baseline['exact_span_accuracy']:.3f}"
+    )
+
+
+@pytest.mark.parametrize("filename,label", DATASETS)
+def test_critical_metric_floors(filename: str, label: str) -> None:
+    """Absolute floors on critical metrics (recall-first, no blanket masking)."""
+    cases = _load_cases(filename)
+    metrics, _, _ = run_harness(cases)
+    assert metrics.recall >= MIN_RECALL, (
+        f"{label}: recall {metrics.recall:.3f} below floor {MIN_RECALL}"
+    )
+    assert metrics.exact_span_accuracy >= MIN_EXACT_SPAN_ACCURACY, (
+        f"{label}: exact span accuracy {metrics.exact_span_accuracy:.3f} "
+        f"below floor {MIN_EXACT_SPAN_ACCURACY}"
+    )
+
+
+def test_organizer_approximation_is_reported() -> None:
+    """The organizer approximation is computed and printed (not asserted)."""
+    for filename, label in DATASETS:
+        cases = _load_cases(filename)
+        approx = organizer_approximation(cases)
+        print(f"{label}_dataset organizer_approximation={approx['mean_score']:.3f}")
+        assert 0.0 <= approx["mean_score"] <= 1.0
+
+
+def test_expected_entities_json_is_well_formed() -> None:
+    """All expected_entities columns must be valid JSON arrays."""
+    for filename, _ in DATASETS:
+        cases = _load_cases(filename)
+        for case in cases:
+            raw = case.get("expected_entities", "")
+            if not raw:
+                continue
+            payload = json.loads(raw)
+            assert isinstance(payload, list), f"{case['id']}: not a JSON array"

@@ -79,8 +79,8 @@ def test_birth_place() -> None:
     match = BirthPlaceDetector().detect(text)[0]
 
     assert match.pii_type == "BIRTH_PLACE"
-    assert match.value == "город Москва"
-    assert PIIMasker().mask(text) == "Место рождения __PII_BIRTH_PLACE_1__"
+    assert match.value == "Москва"
+    assert PIIMasker().mask(text) == "Место рождения город __PII_BIRTH_PLACE_1__"
 
 
 def test_citizenship() -> None:

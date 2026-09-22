@@ -4,6 +4,7 @@ from app.pii import (
     PassportDetector,
     PIIMasker,
     SNILSDetector,
+    demask,
 )
 
 
@@ -27,6 +28,66 @@ def test_supported_russian_passport_formats() -> None:
 
         assert len(matches) == 1
         assert matches[0].value == passport
+
+
+def test_passport_series_number_formats() -> None:
+    """Passports with separating words 'серия/номер' mask both numeric parts."""
+    cases = {
+        "Паспорт: серия 4509 номер 123456": (
+            "Паспорт: серия __PII_PASSPORT_1__ номер __PII_PASSPORT_2__"
+        ),
+        "Паспорт: серия 1234 # 123456": (
+            "Паспорт: серия __PII_PASSPORT_1__ # __PII_PASSPORT_2__"
+        ),
+        "Паспорт: серия: 1234, номер: 123456": (
+            "Паспорт: серия: __PII_PASSPORT_1__, номер: __PII_PASSPORT_2__"
+        ),
+    }
+    for text, expected in cases.items():
+        assert PIIMasker().mask(text) == expected
+
+
+def test_passport_series_number_offsets() -> None:
+    """Series and number are separate matches with exact offsets."""
+    text = "Паспорт: серия 4509 номер 123456"
+    matches = PassportDetector().detect(text)
+
+    series = [m for m in matches if m.value == "4509"]
+    number = [m for m in matches if m.value == "123456"]
+    assert len(series) == 1
+    assert len(number) == 1
+    assert text[series[0].start : series[0].end] == "4509"
+    assert text[number[0].start : number[0].end] == "123456"
+
+
+def test_passport_series_number_round_trip() -> None:
+    """Masking then demasking restores the original passport text."""
+    text = "Паспорт: серия 4509 номер 123456"
+    masker = PIIMasker()
+    masked = masker.mask(text)
+    restored = demask(masked, masker.mapping)
+
+    assert restored == text
+
+
+def test_passport_series_number_requires_context() -> None:
+    """'серия ... номер ...' is strong passport context; other words are not."""
+    # "серия ... номер ..." alone is a passport pattern.
+    assert PIIMasker().mask("серия 4509 номер 123456") == (
+        "серия __PII_PASSPORT_1__ номер __PII_PASSPORT_2__"
+    )
+    # Without "серия", arbitrary numbers are not masked.
+    for text in (
+        "Число 4509 номер 123456",
+        "Код 4509 номер 123456",
+    ):
+        assert PIIMasker().mask(text) == text
+
+
+def test_passport_dash_format_is_masked() -> None:
+    text = "Паспорт 4509-123456"
+
+    assert PIIMasker().mask(text) == "Паспорт __PII_PASSPORT_1__"
 
 
 def test_invalid_russian_passport_is_not_detected() -> None:
