@@ -128,6 +128,7 @@ async def lifespan(app: FastAPI):
         ),
         waiter_timeout=float(os.getenv("PROCESS_WAITER_TIMEOUT_SECONDS", "5")),
         max_payload_bytes=int(os.getenv("PROCESS_MAX_PAYLOAD_BYTES", "400000")),
+        max_estimated_tokens=int(os.getenv("PROCESS_MAX_ESTIMATED_TOKENS", "100000")),
     )
     yield
     app.state.process_engine.close()

@@ -1397,6 +1397,7 @@ class NameDetector:
                 else:
                     continue
                 break
+        matches.extend(self._latin_name_matches(text))
         return matches
 
     def _latin_name_matches(self, text: str) -> list[PIIMatch]:

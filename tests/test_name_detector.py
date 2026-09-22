@@ -24,6 +24,26 @@ def test_detects_full_name_after_leading_word() -> None:
     assert PIIMasker().mask(text) == "Клиент __PII_PERSON_1__"
 
 
+def test_detects_latin_three_word_name_without_context() -> None:
+    text = "IVAN PETROV ALEKSEEVICH"
+    match = NameDetector().detect(text)[0]
+
+    assert match.value == "IVAN PETROV ALEKSEEVICH"
+
+
+def test_detects_latin_two_word_name_with_context() -> None:
+    text = "Cardholder IVAN PETROV"
+    match = NameDetector().detect(text)[0]
+
+    assert match.value == "Cardholder IVAN PETROV"
+
+
+def test_latin_two_word_name_without_context_is_not_detected() -> None:
+    text = "IVAN PETROV"
+
+    assert NameDetector().detect(text) == []
+
+
 def test_detects_full_name_last_first_patronymic() -> None:
     text = "Петров Иван Иванович"
     match = NameDetector().detect(text)[0]

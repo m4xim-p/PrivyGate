@@ -7,6 +7,7 @@ import pytest
 from app.errors import (
     ConflictError,
     PayloadTooLargeError,
+    ProcessError,
     TooManyRequestsError,
 )
 from app.process_service import ProcessService
@@ -116,7 +117,8 @@ def test_producer_error_releases_pending_and_raises(clock: _FakeClock) -> None:
     service = _make_service(_FailingEngine(), clock)
 
     async def run() -> None:
-        with pytest.raises(RuntimeError):
+        # Fail-closed: a detector error surfaces as a controlled ProcessError.
+        with pytest.raises(ProcessError):
             await service.process("Иванов Иван Иванович", "id-1")
         # Capacity released, pending removed -> next call starts fresh.
         assert service.store.current_bytes == 0
@@ -134,11 +136,26 @@ def test_payload_too_large_returns_413(clock: _FakeClock) -> None:
     asyncio.run(run())
 
 
+def test_estimated_tokens_limit_is_separate(clock: _FakeClock) -> None:
+    """Token limit must be enforced independently of the byte limit."""
+    service = _make_service(
+        _BlockingEngine(), clock, max_payload_bytes=1_000_000, max_estimated_tokens=4
+    )
+
+    async def run() -> None:
+        # "Иванов Иван Иванович" is ~20 chars -> ~5 tokens, within byte limit
+        # but over the token limit.
+        with pytest.raises(PayloadTooLargeError):
+            await service.process("Иванов Иван Иванович", "id-1")
+
+    asyncio.run(run())
+
+
 def test_future_has_no_unhandled_exception(clock: _FakeClock) -> None:
     service = _make_service(_FailingEngine(), clock)
 
     async def run() -> None:
-        with pytest.raises(RuntimeError):
+        with pytest.raises(ProcessError):
             await service.process("Иванов Иван Иванович", "id-1")
         # Give the event loop a chance to surface any unhandled future exception.
         await asyncio.sleep(0.01)

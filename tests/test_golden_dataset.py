@@ -94,6 +94,7 @@ def test_dataset_quality_report(filename: str, label: str) -> None:
     cases = _load_cases(filename)
     masker = PIIMasker()
     tp = tn = fp = fn = 0
+    span_errors = 0
     per_category: dict[str, dict[str, int]] = {}
 
     for case in cases:
@@ -102,11 +103,16 @@ def test_dataset_quality_report(filename: str, label: str) -> None:
         actual = masked != case["text"]
 
         stats = per_category.setdefault(
-            case["category"], {"tp": 0, "tn": 0, "fp": 0, "fn": 0}
+            case["category"], {"tp": 0, "tn": 0, "fp": 0, "fn": 0, "span": 0}
         )
         if expected and actual:
             tp += 1
             stats["tp"] += 1
+            # Span accuracy: every expected span must be hidden in the mask.
+            for span in _expected_spans(case):
+                if span and span in masked:
+                    span_errors += 1
+                    stats["span"] += 1
         elif expected and not actual:
             fn += 1
             stats["fn"] += 1
@@ -122,7 +128,8 @@ def test_dataset_quality_report(filename: str, label: str) -> None:
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
 
     report = [
-        f"{label}_dataset total={len(cases)} tp={tp} tn={tn} fp={fp} fn={fn}",
+        f"{label}_dataset total={len(cases)} tp={tp} tn={tn} fp={fp} fn={fn} "
+        f"span_errors={span_errors}",
         f"precision={precision:.3f} recall={recall:.3f} f1={f1:.3f}",
     ]
     for category in sorted(per_category):
@@ -131,7 +138,15 @@ def test_dataset_quality_report(filename: str, label: str) -> None:
         cat_rec = s["tp"] / (s["tp"] + s["fn"]) if s["tp"] + s["fn"] else 0.0
         report.append(
             f"  {category}: tp={s['tp']} fp={s['fp']} fn={s['fn']} "
-            f"precision={cat_prec:.3f} recall={cat_rec:.3f}"
+            f"span={s['span']} precision={cat_prec:.3f} recall={cat_rec:.3f}"
         )
 
     print("\n".join(report))
+
+
+def _expected_spans(case: dict[str, str]) -> list[str]:
+    """Split the expected_span field into individual spans."""
+    raw = case.get("expected_span", "").strip()
+    if not raw or raw == "—":
+        return []
+    return [part.strip() for part in raw.split(";") if part.strip()]
