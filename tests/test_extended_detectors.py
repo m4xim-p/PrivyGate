@@ -138,7 +138,8 @@ def test_address_postal_code() -> None:
 
 
 def test_address_registration_marker() -> None:
-    text = "Регистрация: 607635, Нижегородская область, Нижний Новгород, п. Новики, ул. Ясная, д. 135."
+    text = ("Регистрация: 607635, Нижегородская область, Нижний Новгород, "
+            "п. Новики, ул. Ясная, д. 135.")
     matches = AddressDetector().detect(text)
 
     assert any(m.pii_type == "ADDRESS" for m in matches)
