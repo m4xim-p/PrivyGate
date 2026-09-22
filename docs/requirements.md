@@ -39,7 +39,7 @@ LLM proxy, и как отдельный сервис обработки стро
 | Код подразделения | `PASSPORT_UNIT_CODE` | partial | Нужны negative-context и форматные тесты |
 | Дата выдачи паспорта | `PASSPORT_ISSUE_DATE` | partial | Конфликтует с общим detector дат рождения |
 | Водительское удостоверение | `DRIVING_LICENSE` | partial | Нужны дополнительные допустимые форматы и negatives |
-| Адрес и компоненты | `ADDRESS` | partial | Сейчас уверенно покрывается только часть компонентов |
+| Адрес и компоненты | `ADDRESS` | present | Двухстадийный детектор: якоря + расширение границ; точные spans (38/38 на api_dataset), гранулы (zip/region/city/street/house/flat) |
 | Email | `EMAIL` | present | Требуется corpus-level validation |
 | Телефон | `PHONE` | present | Требуется corpus-level validation контекстных кандидатов |
 | ИНН | `INN` | present | Требуется corpus-level validation; checksum реализован |
@@ -66,7 +66,7 @@ LLM proxy, и как отдельный сервис обработки стро
 | Выбор masking strategy по потребителю | missing | Дополнительная возможность, не нужна для базового scorer |
 | Независимость от регистра | partial | Реализовано не во всех detector одинаково |
 | Контекстные комбинационные правила | partial | Есть context scoring, нет общего policy engine |
-| Ловушки «Пушкин» и адрес банка | partial | Есть known-person suppression; адрес организации не решён системно |
+| Ловушки «Пушкин» и адрес банка | partial | Есть known-person suppression; адрес организации исключается через ORG_MARKER_RE (ПАО/ООО/банк) |
 | Безопасные логи типов PII | present | Нельзя считать заменой metrics |
 | Latency/RPS/TPS metrics | partial | Latency логируется, RPS/TPS endpoint отсутствует |
 | Ошибки и деградация | partial | Есть upstream errors; fail-closed policy не оформлена |

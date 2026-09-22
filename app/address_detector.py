@@ -99,7 +99,9 @@ TOPO_SUFFIX_RE = re.compile(
 )
 
 ORG_MARKER_RE = re.compile(
-    r'\b(?:ПАО|ОАО|ЗАО|ООО|НКО|АНО|ФГУП|МУП|ОГРН)\b|\bбанк\b', re.I)
+    r'\b(?:ПАО|ОАО|ЗАО|ООО|НКО|АНО|ФГУП|МУП|ОГРН)\b|\bбанк\b|'
+    r'\b(?:отделение|отделения|банкомат|офис|пункт выдачи|компания|организация)\b|'
+    r'\bюридический адрес\b', re.I)
 
 
 # ---------------------------------------------------------------- helpers
@@ -209,6 +211,22 @@ def _find_anchor_spans(text: str) -> list[tuple[int, int]]:  # noqa: C901
             if m:
                 start = m.end()
             return [(start, len(text))]
+    # A bare zip preceded by an address marker ("Индекс 101000",
+    # "Проживает по адресу 101000") is an address even without a street.
+    if not anchors:
+        for m in re.finditer(r'\b\d{6}\b', text):
+            before = text[:m.start()]
+            if re.search(r'\b(?:индекс|адрес|адресу|регистрация|регистрации|'
+                         r'проживает|зарегистрирован|зарегистрирована|прописка)\b',
+                         before, re.I):
+                anchors.append(m.start())
+    # English address markers ("Address: Moscow, Tverskaya 7",
+    # "Registered at: 101000, Moscow, Tverskaya 7").
+    if not anchors:
+        for m in re.finditer(r'\b(?:address|registered at|lives at)\b\s*:?\s*',
+                             text, re.I):
+            if m.end() < len(text):
+                anchors.append(m.end())
     return sorted(set(anchors))
 
 
@@ -422,6 +440,27 @@ def detect(text: str) -> list[dict]:  # noqa: C901
         while e > s and text[e - 1] in ' ,;':
             e -= 1
         if e > s:
+            # Skip bare abbreviations ("ул.", "г.", "д.") that are not a
+            # real address (no street name / house number).
+            if re.fullmatch(r'\s*(?:ул|г|д|кв|п|обл|с|ст|к|пер|пр-т|просп|ш|'
+                            r'б-р|наб|пл|мкр|тер|уч)\.?\s*', text[s:e], re.I):
+                continue
+            # Skip addresses of organizations/branches (not personal PII):
+            # "Отделение банка по адресу: ...", "Банкомат по адресу: ...".
+            # Not when a personal address marker sits between the org marker
+            # and the address ("ОГРН ...; адрес регистрации: ..." is personal).
+            before = text[max(0, s - 60):s]
+            org_hits = list(ORG_MARKER_RE.finditer(before))
+            if org_hits:
+                last_org = org_hits[-1].end()
+                between = before[last_org:]
+                # "по адресу" is not a personal marker; "адрес регистрации"
+                # is. So "Отделение банка по адресу: ..." is an org address,
+                # while "ОГРН ...; адрес регистрации: ..." is personal.
+                if not re.search(r'\b(?:адрес регистрации|регистрация|'
+                                 r'регистрации|проживает|зарегистрирован|'
+                                 r'зарегистрирована|прописка)\b', between, re.I):
+                    continue
             result.append({'start': s, 'end': e, 'text': text[s:e]})
     return result
 
