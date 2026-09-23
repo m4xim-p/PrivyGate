@@ -1674,6 +1674,14 @@ class PinCodeDetector:
                 "pin": 0.45,
             },
         )
+        self._card_context = ContextConfig(
+            positive_context_weights={
+                "карта": 0.45,
+                "карты": 0.45,
+                "номер карты": 0.45,
+                "card": 0.45,
+            },
+        )
         self._require_card = require_card
 
     def detect(self, text: str) -> list[PIIMatch]:
@@ -1682,6 +1690,15 @@ class PinCodeDetector:
             _passes_luhn(_digits(match.group(0)))
             for match in CARD_PATTERN.finditer(text)
         )
+        # Also treat a non-Luhn card in explicit "карта" context as a card.
+        if not has_card:
+            has_card = any(
+                _context_confidence(
+                    text, match.start(), match.end(), self._card_context
+                )
+                >= 0.80
+                for match in CARD_PATTERN.finditer(text)
+            )
         for match in PIN_PATTERN.finditer(text):
             confidence = _context_confidence(
                 text, match.start(), match.end(), self.config
