@@ -32,7 +32,9 @@ class _FakeEngine:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def mask(self, text: str) -> tuple[str, int, list[str]]:
+    async def mask(
+        self, text: str, policy: object | None = None
+    ) -> tuple[str, int, list[str]]:
         self.calls += 1
         if "Иванов" in text:
             return text.replace("Иванов Иван Иванович", "__PII_PERSON_1__"), 1, ["PERSON"]

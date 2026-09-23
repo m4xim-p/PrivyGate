@@ -1725,6 +1725,8 @@ class PIIMasker:
         self,
         detectors: Sequence[PIIDetector] | None = None,
         min_confidence: float = DEFAULT_MASKING_CONFIDENCE,
+        enabled_pii_types: frozenset[str] | None = None,
+        masking_mode: str = "typed_placeholder",
     ) -> None:
         self.mapping: dict[str, str] = {}
         self.decisions: list[PIIDecision] = []
@@ -1737,6 +1739,8 @@ class PIIMasker:
             else default_rule_detectors()
         )
         self._min_confidence = min_confidence
+        self._enabled_pii_types = enabled_pii_types
+        self._masking_mode = masking_mode
 
     def mask(self, text: str) -> str:
         candidates = [
@@ -1746,7 +1750,10 @@ class PIIMasker:
         ]
         candidates.sort(key=lambda match: (match.start, match.end, match.pii_type))
         eligible = [
-            match for match in candidates if match.confidence >= self._min_confidence
+            match
+            for match in candidates
+            if match.confidence >= self._min_confidence
+            and self._is_enabled(match.pii_type)
         ]
         matches = resolve_overlapping_matches(eligible)
         self._matches = matches
@@ -1774,7 +1781,7 @@ class PIIMasker:
         for match in matches:
             masked_parts.append(text[previous_end : match.start])
             self._counters[match.pii_type] = self._counters.get(match.pii_type, 0) + 1
-            placeholder = f"__PII_{match.pii_type}_{self._counters[match.pii_type]}__"
+            placeholder = self._placeholder(match.pii_type, self._counters[match.pii_type])
             self.mapping[placeholder] = match.value
             self._pii_types.add(match.pii_type)
             masked_parts.append(placeholder)
@@ -1782,6 +1789,18 @@ class PIIMasker:
 
         masked_parts.append(text[previous_end:])
         return "".join(masked_parts)
+
+    def _is_enabled(self, pii_type: str) -> bool:
+        if self._enabled_pii_types is None:
+            return True
+        return pii_type in self._enabled_pii_types
+
+    def _placeholder(self, pii_type: str, index: int) -> str:
+        if self._masking_mode == "typed_placeholder":
+            return f"__PII_{pii_type}_{index}__"
+        # Other modes (synthetic, format_preserving) are extensions; keep the
+        # typed placeholder as the safe default until they are implemented.
+        return f"__PII_{pii_type}_{index}__"
 
     def result(self, text: str) -> MaskingResult:
         return MaskingResult(text=self.mask(text), mapping=dict(self.mapping))

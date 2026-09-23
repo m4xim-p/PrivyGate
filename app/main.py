@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.errors import (
+    ForbiddenError,
     ProcessError,
     TooManyRequestsError,
     ValidationError,
@@ -27,6 +28,7 @@ from app.pii import (
     default_rule_detectors,
 )
 from app.pii_engine import PIIMaskingEngine
+from app.policy import PolicyRegistry
 from app.process_service import ProcessService
 from app.process_store import ProcessStore
 from app.proxy import open_upstream_stream
@@ -54,11 +56,26 @@ def _env_enabled(name: str, default: bool = False) -> bool:
     return value.casefold() in {"1", "true", "yes", "on"}
 
 
+def _extract_api_key(request: Request) -> str | None:
+    """Extract the API key from Authorization Bearer or X-API-Key header."""
+    auth = request.headers.get("Authorization")
+    if auth and auth.casefold().startswith("bearer "):
+        return auth[7:].strip() or None
+    return request.headers.get("X-API-Key")
+
+
 def _mask_payload(
     body: ChatCompletionRequest,
     detectors: Sequence[PIIDetector],
+    *,
+    enabled_pii_types: frozenset[str] | None = None,
+    masking_mode: str = "typed_placeholder",
 ) -> tuple[dict[str, object], PIIMasker]:
-    masker = PIIMasker(detectors=detectors)
+    masker = PIIMasker(
+        detectors=detectors,
+        enabled_pii_types=enabled_pii_types,
+        masking_mode=masking_mode,
+    )
     payload = body.as_upstream_payload()
     for message in payload["messages"]:
         message["content"] = masker.mask(message["content"])
@@ -130,6 +147,10 @@ async def lifespan(app: FastAPI):
         max_payload_bytes=int(os.getenv("PROCESS_MAX_PAYLOAD_BYTES", "400000")),
         max_estimated_tokens=int(os.getenv("PROCESS_MAX_ESTIMATED_TOKENS", "100000")),
     )
+    app.state.policy_registry = PolicyRegistry(
+        config_path=os.getenv("POLICY_CONFIG_PATH"),
+        reload_interval=float(os.getenv("POLICY_RELOAD_INTERVAL_SECONDS", "30")),
+    )
     yield
     app.state.process_engine.close()
     await app.state.http_client.aclose()
@@ -153,6 +174,11 @@ async def process_error_handler(request: Request, exc: ProcessError):
         content={"detail": exc.message},
         headers=headers,
     )
+
+
+@app.exception_handler(ForbiddenError)
+async def forbidden_error_handler(request: Request, exc: ForbiddenError):
+    return JSONResponse(status_code=403, content={"detail": exc.message})
 
 
 @app.exception_handler(RequestValidationError)
@@ -194,14 +220,31 @@ async def chat_completions(
     request: Request,
 ) -> StreamingResponse:
     request_id = str(uuid.uuid4())
+    registry = getattr(request.app.state, "policy_registry", None)
+    consumer_id = request.headers.get("X-Consumer-ID")
+    api_key = _extract_api_key(request)
+    if registry is not None and not registry.is_allowed(consumer_id, api_key):
+        raise ForbiddenError("consumer not allowed")
+    policy = registry.resolve(consumer_id) if registry is not None else None
+
     detectors = getattr(request.app.state, "pii_detectors", None)
     if detectors is None:
         detectors = default_rule_detectors()
+    mask_kwargs = (
+        {
+            "enabled_pii_types": policy.enabled_pii_types,
+            "masking_mode": policy.masking_mode,
+        }
+        if policy is not None
+        else {}
+    )
     if getattr(request.app.state, "ner_enabled", False):
         async with request.app.state.ner_semaphore:
-            payload, masker = await asyncio.to_thread(_mask_payload, body, detectors)
+            payload, masker = await asyncio.to_thread(
+                _mask_payload, body, detectors, **mask_kwargs
+            )
     else:
-        payload, masker = _mask_payload(body, detectors)
+        payload, masker = _mask_payload(body, detectors, **mask_kwargs)
 
     backend = await request.app.state.router.next_backend()
     pii_decisions = ",".join(

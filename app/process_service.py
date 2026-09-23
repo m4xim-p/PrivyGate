@@ -7,6 +7,7 @@ import hashlib
 
 from app.errors import ConflictError, ProcessError, TooManyRequestsError
 from app.pii_engine import PIIMaskingEngine
+from app.policy import ConsumerPolicy
 from app.process_store import ProcessSession, ProcessStore, SessionState
 
 
@@ -57,7 +58,12 @@ class ProcessService:
         self._max_payload_bytes = max_payload_bytes
         self._max_estimated_tokens = max_estimated_tokens
 
-    async def process(self, payload: str, payload_id: str) -> str:
+    async def process(
+        self,
+        payload: str,
+        payload_id: str,
+        policy: ConsumerPolicy | None = None,
+    ) -> str:
         from app.errors import PayloadTooLargeError
 
         payload_bytes = len(payload.encode("utf-8"))
@@ -84,7 +90,7 @@ class ProcessService:
             return await self._await_pending(payload_id, pending.future, fingerprint, length)
 
         try:
-            masked, pii_count, pii_types = await self._engine.mask(payload)
+            masked, pii_count, pii_types = await self._engine.mask(payload, policy)
             await self.store.publish_active(
                 payload_id, payload, masked, pii_count, pii_types
             )

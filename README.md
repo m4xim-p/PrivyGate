@@ -124,6 +124,36 @@ curl -X POST http://localhost:8000/process \
 `payload too large: maximum context length is N tokens, but you requested M tokens`.
 Byte и token лимиты проверяются отдельно (не «100k = 400 КБ»).
 
+### Политики потребителей (ADR-0004)
+
+Per-consumer настройка маскирования через `PolicyRegistry`. Конфиг — JSON-файл,
+путь задаётся `POLICY_CONFIG_PATH`; файл перечитывается каждые
+`POLICY_RELOAD_INTERVAL_SECONDS` (по умолчанию 30) без редеплоя.
+
+```json
+{
+  "consumers": [
+    {
+      "consumer_id": "crm",
+      "enabled": true,
+      "enabled_pii_types": ["PERSON", "PHONE", "EMAIL"],
+      "allow_demasking": false,
+      "min_confidence": 0.9,
+      "api_keys": ["secret-key"]
+    }
+  ]
+}
+```
+
+- `consumer_id` — идентификатор системы-потребителя (заголовок `X-Consumer-ID`).
+- `enabled` — вкл/откл обращения в модуль.
+- `enabled_pii_types` — перечень типов ПДН для маскирования.
+- `allow_demasking` — право демаскирования.
+- `api_keys` — allowlist ключей (заголовок `Authorization: Bearer` или `X-API-Key`).
+
+`/process` (AlfaSonar) всегда использует default profile `alfasonar` без auth.
+Allowlist применяется только к продуктовому `/v1/chat/completions`.
+
 ### Dev-only просмотр полного запроса к mock backend
 
 Для ручной проверки masking на синтетических данных можно явно включить полный

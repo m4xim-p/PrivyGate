@@ -59,9 +59,9 @@ LLM proxy, и как отдельный сервис обработки стро
 | Boundary-safe streaming demasking | present | Placeholder может пересекать chunks |
 | `POST /process` | present | Реализован: ProcessService + ProcessStore |
 | Idempotency по `payload_id` | present | Retry masking/demasking детерминированы; конфликт -> 409 |
-| Конфигурация типов PII по потребителю | missing | Нужен policy registry |
-| Включение/отключение потребителей | missing | Нужен allowlist/evaluation profile |
-| Демаскирование по политике потребителя | missing | Сейчас всегда выполняется proxy-потоком |
+| Конфигурация типов PII по потребителю | present | PolicyRegistry (ADR-0004): per-consumer enabled_pii_types |
+| Включение/отключение потребителей | present | PolicyRegistry: allowlist + enabled флаг (ADR-0004) |
+| Демаскирование по политике потребителя | present | ConsumerPolicy.allow_demasking (ADR-0004) |
 | Маска AlfaSonar | present | Typed placeholders допустимы; нужно измерить точность PII spans |
 | Выбор masking strategy по потребителю | missing | Дополнительная возможность, не нужна для базового scorer |
 | Независимость от регистра | partial | Реализовано не во всех detector одинаково |

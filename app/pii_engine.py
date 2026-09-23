@@ -6,7 +6,8 @@ import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 
-from app.pii import PIIDetector, PIIMasker
+from app.pii import DEFAULT_MASKING_CONFIDENCE, PIIDetector, PIIMasker
+from app.policy import ConsumerPolicy
 
 
 class PIIMaskingEngine:
@@ -21,15 +22,32 @@ class PIIMaskingEngine:
         detectors: Sequence[PIIDetector],
         *,
         max_workers: int = 32,
+        default_policy: ConsumerPolicy | None = None,
     ) -> None:
         self._detectors = tuple(detectors)
+        self._default_policy = default_policy or ConsumerPolicy(
+            consumer_id="alfasonar"
+        )
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="pii-mask"
         )
 
-    async def mask(self, text: str) -> tuple[str, int, list[str]]:
+    async def mask(
+        self, text: str, policy: ConsumerPolicy | None = None
+    ) -> tuple[str, int, list[str]]:
+        profile = policy or self._default_policy
+
         def _run() -> tuple[str, int, list[str]]:
-            masker = PIIMasker(detectors=self._detectors)
+            masker = PIIMasker(
+                detectors=self._detectors,
+                min_confidence=(
+                    profile.min_confidence
+                    if profile.min_confidence is not None
+                    else DEFAULT_MASKING_CONFIDENCE
+                ),
+                enabled_pii_types=profile.enabled_pii_types,
+                masking_mode=profile.masking_mode,
+            )
             masked = masker.mask(text)
             return masked, len(masker.mapping), masker.pii_types
 
