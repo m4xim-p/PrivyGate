@@ -456,12 +456,13 @@ threads). Результат — разбивка активного CPU по к
 
 ## Optional local NER
 
-По умолчанию NER выключен, и Gateway использует только rule-based detectors. Для
-локального PERSON detection установите optional dependencies и включите модель:
+NER включён по умолчанию (`NER_ENABLED=true`): Gateway использует rule-based
+detectors + локальный NER для PERSON detection. Для отключения задайте
+`NER_ENABLED=false`. Требуются optional dependencies:
 
 ```bash
 pip install -e '.[ner]'
-NER_ENABLED=true uvicorn app.main:app --port 8000
+uvicorn app.main:app --port 8000
 ```
 
 Модель задаётся через `NER_MODEL`; начальное значение —

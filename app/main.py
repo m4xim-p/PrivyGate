@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
         config_path=os.getenv("MODELS_CONFIG_PATH"),
         reload_interval=float(os.getenv("MODELS_RELOAD_INTERVAL_SECONDS", "30")),
     )
-    app.state.ner_enabled = _env_enabled("NER_ENABLED")
+    app.state.ner_enabled = _env_enabled("NER_ENABLED", default=True)
     app.state.ner_semaphore = asyncio.Semaphore(
         int(os.getenv("NER_MAX_CONCURRENCY", "1"))
     )
