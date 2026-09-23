@@ -58,6 +58,7 @@ SNILS_PATTERN = re.compile(
     r"(?<![0-9])[0-9]{3}[- ]?[0-9]{3}[- ]?[0-9]{3}[ ]?[0-9]{2}(?![0-9])"
 )
 INN_PATTERN = re.compile(r"(?<![0-9])(?:[0-9]{12}|[0-9]{10})(?![0-9])")
+INN_13_PATTERN = re.compile(r"(?<![0-9])[0-9]{13}(?![0-9])")
 KPP_PATTERN = re.compile(r"(?<![0-9])[0-9]{9}(?![0-9])")
 OGRN_PATTERN = re.compile(r"(?<![0-9])[0-9]{13}(?![0-9])")
 CARD_PATTERN = re.compile(r"(?<![0-9])(?:[0-9][ -]?){12,18}[0-9](?![0-9])")
@@ -464,19 +465,43 @@ class INNDetector:
 
     def __init__(self, confidence: float = 1.0) -> None:
         self._confidence = confidence
+        self._context = ContextConfig(
+            positive_context_weights={
+                "инн": 0.45,
+                "налоговый номер": 0.45,
+            },
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
-        return [
-            PIIMatch(
-                pii_type=self.pii_type,
-                value=match.group(0),
-                start=match.start(),
-                end=match.end(),
-                confidence=self._confidence,
+        matches: list[PIIMatch] = []
+        for match in INN_PATTERN.finditer(text):
+            if self._has_valid_checksum(match.group(0)):
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=self._confidence,
+                    )
+                )
+        # 13-digit INN in explicit "ИНН" context (checksum may not validate).
+        for match in INN_13_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self._context
             )
-            for match in INN_PATTERN.finditer(text)
-            if self._has_valid_checksum(match.group(0))
-        ]
+            if confidence < 0.80:
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
 
     @classmethod
     def _has_valid_checksum(cls, digits: str) -> bool:
