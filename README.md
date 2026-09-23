@@ -651,8 +651,8 @@ runtime.
 
 ## Результаты качества и нагрузки
 
-- **Качество** (строгий entity/span harness): golden F1 0.934, api 0.931,
-  extended 0.912, variants 0.950. Подробно — [docs/benchmarks/quality-baseline.md](docs/benchmarks/quality-baseline.md).
+- **Качество** (строгий entity/span harness): golden F1 0.935, api 0.944,
+  extended 0.947, variants 0.965. Подробно — [docs/benchmarks/quality-baseline.md](docs/benchmarks/quality-baseline.md).
 - **Нагрузка**: ~1000 HTTP RPS на hold (999.5), mask p95 9ms, event loop delay 0ms.
   Подробно — [docs/benchmarks/load-test-baseline.md](docs/benchmarks/load-test-baseline.md).
 - **Оценка готовности** по критериям жюри — [docs/readiness.md](docs/readiness.md).
