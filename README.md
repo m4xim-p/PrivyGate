@@ -121,8 +121,9 @@ curl -X POST http://localhost:8000/process \
 Конфигурация `/process` через переменные окружения: `PROCESS_ACTIVE_TTL_SECONDS`,
 `PROCESS_COMPLETED_TTL_SECONDS`, `PROCESS_STORE_MAX_ENTRIES`, `PROCESS_STORE_MAX_BYTES`,
 `PROCESS_WAITER_TIMEOUT_SECONDS`, `PROCESS_MAX_PAYLOAD_BYTES`, `PROCESS_MAX_ESTIMATED_TOKENS`,
-`PROCESS_MASK_WORKERS`, `PROCESS_NER_ENABLED`, `PROCESS_NER_MAX_CONCURRENCY`,
-`PROCESS_DETECTION_PROFILE`.
+`PROCESS_MASK_WORKERS`, `PROCESS_DETECTION_PROFILE`. NER-переменные (`NER_ENABLED`,
+`NER_MODEL`, `NER_MODEL_REVISION`, `NER_MAX_CONCURRENCY` и др.) описаны в разделе
+«Optional local NER».
 
 При превышении лимита `/process` возвращает `413` с пояснением в стиле DeepSeek:
 `payload too large: maximum context length is N tokens, but you requested M tokens`.
