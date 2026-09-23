@@ -161,7 +161,7 @@ curl -N http://localhost:8000/v1/chat/completions \
 curl -N http://localhost:8000/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -H 'X-Consumer-ID: alfagen' \
-  -H 'Authorization: Bearer <allowlist_key>' \
+  -H 'Authorization: Bearer CHANGE_ME_alfagen_api_key' \
   -H 'X-Model-API-Key: <alfagen_api_key>' \
   -d '{
     "model": "deepseek",
@@ -172,6 +172,8 @@ curl -N http://localhost:8000/v1/chat/completions \
 
 - `X-Consumer-ID: alfagen` — профиль с маскированием всех типов PII и
   `allow_demasking: true`;
+- `Authorization: Bearer` — allowlist-ключ профиля `alfagen` из `config/policy.json`
+  (сейчас `CHANGE_ME_alfagen_api_key`; замените на реальный, если настроили свой);
 - `X-Model-API-Key` — ваш API-ключ для альфаген (прокси использует его как
   `Authorization: Bearer` к upstream, не хранит);
 - `model: deepseek` — имя модели из `config/models.json`, указывает на
@@ -180,6 +182,27 @@ curl -N http://localhost:8000/v1/chat/completions \
 Российский корневой сертификат для альфаген подхватывается автоматически из
 `certs/russiantrustedca2024.pem` (bundled в образ); переопределить можно через
 `CA_CERTS_PATH` (см. выше).
+
+### Пример с синтетическими данными
+
+Для проверки маскирования без реальных данных клиента используйте синтетический
+текст — прокси замаскирует PII перед отправкой в альфаген и демаскирует ответ:
+
+```bash
+curl -N http://localhost:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'X-Consumer-ID: alfagen' \
+  -H 'Authorization: Bearer CHANGE_ME_alfagen_api_key' \
+  -H 'X-Model-API-Key: <alfagen_api_key>' \
+  -d '{
+    "model": "deepseek",
+    "messages": [{"role": "user", "content": "Клиент Иванов Иван Иванович, телефон +7 999 123-45-67, email ivan@example.com. Позвони ему."}],
+    "stream": true
+  }'
+```
+
+В логах gateway видно, какие типы PII были замаскированы (без raw значений):
+`request_started ... pii_count=3 pii_types=PERSON,PHONE,EMAIL`.
 
 Неизвестная модель → `404`. Per-consumer квота токенов
 (`max_tokens_per_request` в policy) → `429` при превышении.
