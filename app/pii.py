@@ -715,7 +715,8 @@ DATE_TEXT_PATTERN = re.compile(
     r"пятого|шестого|седьмого|восьмого|девятого|десятого|одиннадцатого|"
     r"двенадцатого|тринадцатого|четырнадцатого|пятнадцатого|шестнадцатого|"
     r"семнадцатого|восемнадцатого|девятнадцатого|двадцатого|тридцатого|"
-    r"тридцать\s+первого))"
+    r"тридцать\s+первого)"
+    r"|[0-9]{1,2})"
     r"\s+"
     r"(?P<month>января|февраля|марта|апреля|мая|июня|июля|августа|сентября|"
     r"октября|ноября|декабря)"
@@ -797,7 +798,10 @@ class DateOfBirthDetector:
                 )
             )
         for match in DATE_TEXT_PATTERN.finditer(text):
-            text_day = RUSSIAN_DAY_WORDS.get(match.group("day").casefold())
+            day_text = match.group("day")
+            text_day = RUSSIAN_DAY_WORDS.get(day_text.casefold())
+            if text_day is None and day_text.isdigit():
+                text_day = int(day_text)
             text_month = RUSSIAN_MONTHS.get(match.group("month").casefold())
             year_text = match.group("year")
             text_year = int(year_text) if year_text else None

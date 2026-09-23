@@ -74,9 +74,9 @@ REQUIRED_CATEGORIES = {
 # cases attribute to real categories) and passport series/number split.
 BASELINE = {
     "golden": {"f1": 0.934, "recall": 0.963, "exact_span_accuracy": 0.975},
-    "api": {"f1": 0.843, "recall": 0.801, "exact_span_accuracy": 0.917},
+    "api": {"f1": 0.851, "recall": 0.815, "exact_span_accuracy": 0.918},
     "extended": {"f1": 0.912, "recall": 0.963, "exact_span_accuracy": 0.963},
-    "variants": {"f1": 0.937, "recall": 0.909, "exact_span_accuracy": 0.968},
+    "variants": {"f1": 0.946, "recall": 0.924, "exact_span_accuracy": 0.968},
 }
 
 # Absolute floor on critical metrics regardless of dataset (recall-first).
