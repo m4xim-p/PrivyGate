@@ -640,6 +640,30 @@ def _is_abbreviation_continuation(text: str, period_index: int) -> bool:
     return text[next_index].isalpha()
 
 
+def _is_date_start(text: str, index: int) -> bool:
+    """Return True when a date (ISO or numeric) starts at ``index``."""
+    if index + 9 >= len(text):
+        return False
+    # ISO YYYY-MM-DD
+    if (
+        text[index : index + 4].isdigit()
+        and text[index + 4] == "-"
+        and text[index + 5 : index + 7].isdigit()
+        and text[index + 7] == "-"
+        and text[index + 8 : index + 10].isdigit()
+    ):
+        return True
+    # Numeric DD.MM.YYYY / DD.MM.YY
+    if (
+        text[index : index + 2].isdigit()
+        and text[index + 2] == "."
+        and text[index + 3 : index + 5].isdigit()
+        and text[index + 5] == "."
+    ):
+        return True
+    return False
+
+
 def _is_sentence_end(text: str, period_index: int) -> bool:
     """Return True when a period ends a sentence (uppercase or end of text)."""
     next_index = period_index + 1
@@ -756,6 +780,15 @@ def _is_valid_calendar_date(day: int, month: int, year: int) -> bool:
     return 1 <= day <= (29 if leap else 28)
 
 
+def _expand_year(year: int) -> int | None:
+    """Expand a 2-digit year (78 -> 1978, 05 -> 2005) or pass through 4-digit."""
+    if 1900 <= year <= 2100:
+        return year
+    if 0 <= year <= 99:
+        return 1900 + year if year >= 30 else 2000 + year
+    return None
+
+
 class DateOfBirthDetector:
     """Detect dates of birth in numeric and textual Russian formats."""
 
@@ -864,13 +897,14 @@ class DateOfBirthDetector:
                 return third, second, first
             return None
 
-        # dd.mm.yyyy / mm.dd.yyyy
-        if not (1900 <= third <= 2100):
+        # dd.mm.yyyy / mm.dd.yyyy. Support 2-digit years (78 -> 1978).
+        year = _expand_year(third)
+        if year is None:
             return None
-        if _is_valid_calendar_date(first, second, third):
-            return first, second, third
-        if _is_valid_calendar_date(second, first, third):
-            return second, first, third
+        if _is_valid_calendar_date(first, second, year):
+            return first, second, year
+        if _is_valid_calendar_date(second, first, year):
+            return second, first, year
         return None
 
     def _confidence(self, text: str, start: int, end: int) -> float:
@@ -1086,6 +1120,10 @@ class PassportAuthorityDetector:
                     end += 1
                     continue
                 break
+            # Stop before a date (ISO YYYY-MM-DD or numeric DD.MM.YYYY) so a
+            # following issue date is not swallowed by the authority span.
+            if _is_date_start(text, end):
+                break
             end += 1
         return end
 
@@ -1128,9 +1166,12 @@ class PassportIssueDateDetector:
 
     def __init__(self, config: ContextConfig | None = None) -> None:
         self.config = config if config is not None else ContextConfig(
+            context_window_chars=120,
             positive_context_weights={
                 "дата выдачи": 0.40,
-                "выдан": 0.30,
+                "выдан": 0.35,
+                "выдано": 0.35,
+                "выдана": 0.35,
             },
         )
 
