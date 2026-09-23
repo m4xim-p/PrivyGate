@@ -95,9 +95,11 @@ def _mask_payload(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     timeout = httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0)
+    ca_certs = os.getenv("CA_CERTS_PATH")
     app.state.http_client = httpx.AsyncClient(
         timeout=timeout,
         limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100),
+        verify=ca_certs if ca_certs else True,
     )
     app.state.model_registry = ModelRegistry(
         config_path=os.getenv("MODELS_CONFIG_PATH"),

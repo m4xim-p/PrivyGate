@@ -84,8 +84,8 @@ Gateway использует порты 8001–8003. Список можно п�
 ```json
 {
   "models": [
-    { "name": "gpt-4o", "api_base": "https://api.openai.com/v1", "model": "gpt-4o" },
-    { "name": "alfagen", "api_base": "https://api.alfagen.ru/v1", "model": "alfagen-model" }
+    { "name": "gpt-4o", "api_base": "https://api.openai.com", "model": "gpt-4o" },
+    { "name": "alfagen", "api_base": "https://alfagen.alfabank.ru/continue-dev", "model": "alfagen-model" }
   ]
 }
 ```
