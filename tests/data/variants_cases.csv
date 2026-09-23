@@ -5,7 +5,7 @@ V03,DATE_OF_BIRTH,variant,Дата рождения 03/15/1990,true,03/15/1990,m
 V04,DATE_OF_BIRTH,variant,Дата рождения 15-03-1990,true,15-03-1990,dd-mm-yyyy,"[{""type"": ""DATE_OF_BIRTH"", ""start"": 14, ""end"": 24, ""value"": ""15-03-1990""}]"
 V05,DATE_OF_BIRTH,variant,ДАТА РОЖДЕНИЯ 15.03.1990,true,15.03.1990,верхний регистр,"[{""type"": ""DATE_OF_BIRTH"", ""start"": 14, ""end"": 24, ""value"": ""15.03.1990""}]"
 V06,DATE_OF_BIRTH,variant,Дата рождения пятнадцатого марта 1990 года,true,пятнадцатого марта 1990 года,дата текстом,"[{""type"": ""DATE_OF_BIRTH"", ""start"": 14, ""end"": 42, ""value"": ""пятнадцатого марта 1990 года""}]"
-V07,DATE_OF_BIRTH,variant,Дата рождения 15 марта 1990 г.,true,15 марта 1990 г.,дата текстом с г.,"[{""type"":""DATE_OF_BIRTH"",""start"":14,""end"":30,""value"":""15 марта 1990 г.""}]"
+V07,DATE_OF_BIRTH,variant,Дата рождения 15 марта 1990 г.,true,15 марта 1990 г.,дата текстом с г.,"[{""type"": ""DATE_OF_BIRTH"", ""start"": 14, ""end"": 30, ""value"": ""15 марта 1990 г.""}]"
 V08,DATE_OF_BIRTH,variant,Дата рождения 1990-03-15,true,1990-03-15,ISO yyyy-mm-dd,"[{""type"": ""DATE_OF_BIRTH"", ""start"": 14, ""end"": 24, ""value"": ""1990-03-15""}]"
 V09,PASSPORT,variant,Паспорт серия 45 09 номер 123456,true,45 09; 123456,серия X номер Y,"[{""type"": ""PASSPORT"", ""start"": 14, ""end"": 19, ""value"": ""45 09""}, {""type"": ""PASSPORT"", ""start"": 26, ""end"": 32, ""value"": ""123456""}]"
 V10,PASSPORT,variant,Паспорт серии 45 09 № 123456,true,45 09; 123456,серии X № Y,"[{""type"": ""PASSPORT"", ""start"": 14, ""end"": 19, ""value"": ""45 09""}, {""type"": ""PASSPORT"", ""start"": 22, ""end"": 28, ""value"": ""123456""}]"

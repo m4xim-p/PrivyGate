@@ -50,8 +50,8 @@ consumer identity, применяет allowlist к продуктовому API 
 
 ## Существующие компоненты
 
-- `app/pii.py` — detector protocol, rule detectors, overlap resolution, masker и
-  streaming demasker;
+- `app/pii.py` — detector protocol, rule detectors, overlap resolution, masker,
+  streaming demasker и `CustomTermDetector` (per-consumer термины, ADR-0007);
 - `app/pii_engine.py` — `PIIMaskingEngine`: immutable detector profile, создаёт
   `PIIMasker` на запрос, маскирует в worker thread, возвращает только masked и
   безопасную диагностику (без mapping);
@@ -65,7 +65,11 @@ consumer identity, применяет allowlist к продуктовому API 
   `render_prometheus` (Prometheus text для `GET /metrics`);
 - `app/ner.py` — optional PERSON detector и Transformers adapter;
 - `app/main.py` — FastAPI lifespan и OpenAI-like Gateway endpoint;
-- `app/proxy.py` — асинхронный upstream streaming;
+- `app/proxy.py` — асинхронный upstream streaming (StreamingDemasker);
+- `app/upstream.py` — `UpstreamClient`: OpenAI-compatible upstream (SSE/text),
+  auth, таймауты (ADR-0008);
+- `app/model_registry.py` — `ModelRegistry`: конфиг моделей (api_base, model),
+  маршрутизация по `model` (ADR-0008);
 - `app/routing.py` — in-memory Round Robin;
 - `mock_llm/main.py` — три конфигурируемых mock backend процесса.
 

@@ -6,7 +6,12 @@ import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 
-from app.pii import DEFAULT_MASKING_CONFIDENCE, PIIDetector, PIIMasker
+from app.pii import (
+    DEFAULT_MASKING_CONFIDENCE,
+    CustomTermDetector,
+    PIIDetector,
+    PIIMasker,
+)
 from app.policy import ConsumerPolicy
 
 
@@ -40,8 +45,13 @@ class PIIMaskingEngine:
         profile = policy or self._default_policy
 
         def _run() -> tuple[str, int, list[str]]:
+            detectors = self._detectors
+            if profile.custom_terms:
+                detectors = detectors + (
+                    CustomTermDetector(profile.custom_terms),
+                )
             masker = PIIMasker(
-                detectors=self._detectors,
+                detectors=detectors,
                 min_confidence=(
                     profile.min_confidence
                     if profile.min_confidence is not None
@@ -52,6 +62,7 @@ class PIIMaskingEngine:
                 ml_detectors=self._ml_detectors,
                 degradation=profile.degradation,
                 require_card_for_pin=profile.require_card_for_pin,
+                custom_terms=profile.custom_terms,
             )
             masked = masker.mask(text)
             return masked, len(masker.mapping), masker.pii_types

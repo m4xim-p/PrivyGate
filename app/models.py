@@ -31,6 +31,7 @@ class ChatCompletionRequest(BaseModel):
     model: str
     messages: list[ChatMessage]
     stream: bool = False
+    max_tokens: int | None = None
 
     def as_upstream_payload(self) -> dict[str, Any]:
         return self.model_dump(exclude_none=True)

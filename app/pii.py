@@ -58,6 +58,7 @@ SNILS_PATTERN = re.compile(
     r"(?<![0-9])[0-9]{3}[- ]?[0-9]{3}[- ]?[0-9]{3}[ ]?[0-9]{2}(?![0-9])"
 )
 INN_PATTERN = re.compile(r"(?<![0-9])(?:[0-9]{12}|[0-9]{10})(?![0-9])")
+INN_13_PATTERN = re.compile(r"(?<![0-9])[0-9]{13}(?![0-9])")
 KPP_PATTERN = re.compile(r"(?<![0-9])[0-9]{9}(?![0-9])")
 OGRN_PATTERN = re.compile(r"(?<![0-9])[0-9]{13}(?![0-9])")
 CARD_PATTERN = re.compile(r"(?<![0-9])(?:[0-9][ -]?){12,18}[0-9](?![0-9])")
@@ -133,6 +134,44 @@ class EmailDetector:
                 confidence=self._confidence,
             )
             for match in EMAIL_PATTERN.finditer(text)
+        ]
+
+
+class CustomTermDetector:
+    """Masks exact user-defined terms (word-boundary, case-insensitive).
+
+    A per-consumer category (CUSTOM_TERM) for terms that are not standard PII
+    categories. Terms are matched as whole words, case-insensitively. Never
+    logs the term values (they are consumer-confidential).
+    """
+
+    pii_type = "CUSTOM_TERM"
+
+    def __init__(self, terms: Sequence[str], confidence: float = 1.0) -> None:
+        self._confidence = confidence
+        # Precompile a single alternation pattern with word boundaries.
+        escaped = [re.escape(term) for term in terms if term]
+        self._pattern = (
+            re.compile(
+                r"\b(?:" + "|".join(escaped) + r")\b",
+                re.IGNORECASE,
+            )
+            if escaped
+            else None
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        if self._pattern is None:
+            return []
+        return [
+            PIIMatch(
+                pii_type=self.pii_type,
+                value=match.group(0),
+                start=match.start(),
+                end=match.end(),
+                confidence=self._confidence,
+            )
+            for match in self._pattern.finditer(text)
         ]
 
 
@@ -464,19 +503,58 @@ class INNDetector:
 
     def __init__(self, confidence: float = 1.0) -> None:
         self._confidence = confidence
+        self._context = ContextConfig(
+            positive_context_weights={
+                "инн": 0.45,
+                "налоговый номер": 0.45,
+            },
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
-        return [
-            PIIMatch(
-                pii_type=self.pii_type,
-                value=match.group(0),
-                start=match.start(),
-                end=match.end(),
-                confidence=self._confidence,
+        matches: list[PIIMatch] = []
+        for match in INN_PATTERN.finditer(text):
+            if self._has_valid_checksum(match.group(0)):
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=self._confidence,
+                    )
+                )
+                continue
+            # Non-valid-checksum INN in explicit "ИНН" context (recall-first).
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self._context
             )
-            for match in INN_PATTERN.finditer(text)
-            if self._has_valid_checksum(match.group(0))
-        ]
+            if confidence >= 0.80:
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=confidence,
+                    )
+                )
+        # 13-digit INN in explicit "ИНН" context (checksum may not validate).
+        for match in INN_13_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self._context
+            )
+            if confidence < 0.80:
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
 
     @classmethod
     def _has_valid_checksum(cls, digits: str) -> bool:
@@ -577,22 +655,46 @@ class CardDetector:
 
     def __init__(self, confidence: float = 1.0) -> None:
         self._confidence = confidence
+        self._context = ContextConfig(
+            positive_context_weights={
+                "карта": 0.45,
+                "карты": 0.45,
+                "номер карты": 0.45,
+                "card": 0.45,
+            },
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
         matches: list[PIIMatch] = []
         for match in CARD_PATTERN.finditer(text):
             digits = _digits(match.group(0))
-            if not _passes_luhn(digits):
-                continue
-            matches.append(
-                PIIMatch(
-                    pii_type=self.pii_type,
-                    value=match.group(0),
-                    start=match.start(),
-                    end=match.end(),
-                    confidence=self._confidence,
+            if _passes_luhn(digits):
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=self._confidence,
+                    )
                 )
+                continue
+            # Non-Luhn card in explicit "карта" context (recall-first).
+            if _is_sequential_digits(digits):
+                continue
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self._context
             )
+            if confidence >= 0.80:
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=confidence,
+                    )
+                )
         return matches
 
 
@@ -614,6 +716,16 @@ def _passes_luhn(digits: str) -> bool:
                 value -= 9
         checksum += value
     return checksum % 10 == 0
+
+
+def _is_sequential_digits(digits: str) -> bool:
+    """Return True when digits are sequential (e.g. 1234567890123456)."""
+    if len(digits) < 2:
+        return False
+    return all(
+        int(digits[i + 1]) == (int(digits[i]) + 1) % 10
+        for i in range(len(digits) - 1)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -711,7 +823,7 @@ def _is_abbreviation_continuation(text: str, period_index: int) -> bool:
 
 
 def _is_date_start(text: str, index: int) -> bool:
-    """Return True when a date (ISO or numeric) starts at ``index``."""
+    """Return True when a date (ISO, numeric, or textual) starts at ``index``."""
     if index + 9 >= len(text):
         return False
     # ISO YYYY-MM-DD
@@ -724,12 +836,40 @@ def _is_date_start(text: str, index: int) -> bool:
     ):
         return True
     # Numeric DD.MM.YYYY / DD.MM.YY
-    return (
+    if (
         text[index : index + 2].isdigit()
         and text[index + 2] == "."
         and text[index + 3 : index + 5].isdigit()
         and text[index + 5] == "."
-    )
+    ):
+        return True
+    # Slash DD/MM/YYYY
+    if (
+        text[index : index + 2].isdigit()
+        and text[index + 2] == "/"
+        and text[index + 3 : index + 5].isdigit()
+        and text[index + 5] == "/"
+    ):
+        return True
+    # Textual date: "15 сентября 2021 г."
+    return _is_textual_date_start(text, index)
+
+
+def _is_textual_date_start(text: str, index: int) -> bool:
+    """Return True when a textual date (day + month word) starts at ``index``."""
+    if index + 2 >= len(text):
+        return False
+    if not text[index : index + 2].isdigit():
+        return False
+    # Skip day digits, then expect a month word.
+    j = index
+    while j < len(text) and text[j].isdigit():
+        j += 1
+    if j >= len(text) or text[j] != " ":
+        return False
+    j += 1
+    # Match a Russian month word.
+    return any(text.startswith(month, j) for month in RUSSIAN_MONTHS)
 
 
 def _is_sentence_end(text: str, period_index: int) -> bool:
@@ -930,16 +1070,21 @@ class DateOfBirthDetector:
                     confidence=confidence,
                 )
             )
+# Numeric day + month word: "19 мая 1963 г."
         for match in NUMERIC_DAY_MONTH_PATTERN.finditer(text):
-            n_day = int(match.group("day"))
-            n_month = RUSSIAN_MONTHS.get(match.group("month").casefold())
-            n_year_text = match.group("year")
-            n_year = int(n_year_text) if n_year_text else None
-            if n_month is None:
+            num_day = int(match.group("day"))
+            num_month = RUSSIAN_MONTHS.get(match.group("month").casefold())
+            year_text = match.group("year")
+            num_year = int(year_text) if year_text else None
+            if num_month is None:
                 continue
-            if n_year is not None and not _is_valid_calendar_date(n_day, n_month, n_year):
+            if num_year is not None and not _is_valid_calendar_date(
+                num_day, num_month, num_year
+            ):
                 continue
             confidence = self._confidence(text, match.start(), match.end())
+            if confidence < 0.80:
+                continue
             matches.append(
                 PIIMatch(
                     pii_type=self.pii_type,
@@ -1158,7 +1303,7 @@ class CitizenshipDetector:
 
     @staticmethod
     def _trim_start(text: str, start: int) -> int:
-        while start < len(text) and text[start] in " \t":
+        while start < len(text) and text[start] in " \t:;":
             start += 1
         return start
 
@@ -1202,6 +1347,8 @@ class PassportAuthorityDetector:
                 "выдан": 0.30,
                 "орган, выдавший": 0.40,
                 "орган выдавший": 0.40,
+                "орган выдачи": 0.40,
+                "выдавший": 0.35,
             },
         )
 
@@ -1270,6 +1417,7 @@ class PassportUnitCodeDetector:
                 "подразделение": 0.30,
                 "подр": 0.30,
                 "подр.": 0.30,
+                "код": 0.30,
             },
         )
 
@@ -1604,8 +1752,8 @@ class CardHolderDetector:
 # intentionally broad; the dataset membership check does the real filtering.
 NAME_CANDIDATE_PATTERN = re.compile(
     r"(?<![а-яёa-z0-9])"
-    r"(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?)"
-    r"(?:\s+[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?){0,3}"
+    r"(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?|[А-ЯЁ]{2,}(?:-[А-ЯЁ]{2,})?)"
+    r"(?:\s+(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?|[А-ЯЁ]{2,}(?:-[А-ЯЁ]{2,})?)){0,3}"
     r"(?![а-яёa-z0-9])"
 )
 
@@ -2042,6 +2190,7 @@ class PIIMasker:
         ml_detectors: Sequence[PIIDetector] | None = None,
         degradation: str = "fail_closed",
         require_card_for_pin: bool = True,
+        custom_terms: Sequence[str] = (),
     ) -> None:
         self.mapping: dict[str, str] = {}
         self.decisions: list[PIIDecision] = []
@@ -2061,6 +2210,7 @@ class PIIMasker:
         self._enabled_pii_types = enabled_pii_types
         self._masking_mode = masking_mode
         self._degradation = degradation
+        self._custom_terms = tuple(custom_terms)
 
     @staticmethod
     def _with_pin_rule(
@@ -2133,6 +2283,10 @@ class PIIMasker:
         return "".join(masked_parts)
 
     def _is_enabled(self, pii_type: str) -> bool:
+        # CUSTOM_TERM is always masked when custom_terms are configured, even if
+        # it is not in enabled_pii_types (it is not part of _ALL_PII_TYPES).
+        if pii_type == "CUSTOM_TERM" and self._custom_terms:
+            return True
         if self._enabled_pii_types is None:
             return True
         return pii_type in self._enabled_pii_types
