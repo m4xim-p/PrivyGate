@@ -550,6 +550,10 @@ def detect(text: str) -> list[dict]:  # noqa: C901
                                  r'регистрации|проживает|зарегистрирован|'
                                  r'зарегистрирована|прописка)\b', between, re.I):
                     continue
+            # Skip service phrases that are not addresses (hotline, support).
+            if re.search(r'\b(?:горячая линия|служба поддержки|контактный центр|'
+                         r'горячей линии|службы поддержки)\b', text[s:e], re.I):
+                continue
             # Split the address into name-only spans, excluding service words
             # (город, улица, дом, ...). "ул. Ленина, д. 135" -> Ленина, 135.
             for ns, ne in _split_address_into_names(text, s, e):
