@@ -12,9 +12,9 @@ LLM proxy, и как отдельный сервис обработки стро
 | Показатель | Цель | Текущий статус |
 |---|---:|---|
 | Качество identification/masking/demasking | не менее 95% | Строгий entity/span harness: golden F1 0.878, api F1 0.626, extended F1 0.857; это не метрика организаторов и не подтверждает 95% |
-| Нагрузка | разгон до 1000 RPS с удержанием; в уточнении также указана средняя ~330 RPS | Есть генератор и локальный baseline, но целевой профиль не подтверждён |
-| Соединения | до 200 параллельных, последовательные запросы внутри соединения | Не проверено |
-| Latency | не более 1 секунды; фиксируются mean/p50/p95/p99 | Benchmark `/process` проведён: при 200 соединениях и keepalive=10 RPS ~628, p95 ~0.36s. Пик 1000 RPS НЕ подтверждён — требуется нагрузочный прогон на целевой конфигурации |
+| Нагрузка | разгон до 1000 RPS с удержанием; в уточнении также указана средняя ~330 RPS | После ADR-0006 (min-heap eviction): RPS ~748 при 200 VU, mask p95 12.91ms, dropped_iterations 33. Целевой профиль 1000 RPS ещё не подтверждён |
+| Соединения | до 200 параллельных, последовательные запросы внутри соединения | k6 benchmark: 200 VU, все запросы успешны (0 ошибок, 0 retries, 0 429) |
+| Latency | не более 1 секунды; фиксируются mean/p50/p95/p99 | После ADR-0006: mask p50 1.74ms / p95 12.91ms / p99 129.87ms, demask p50 0.885ms / p95 5.13ms / p99 41.15ms. Latency ≤1s достигнута; 1000 RPS ещё не подтверждён |
 | Размер текста | до 100 000 токенов | Реализована раздельная валидация bytes и estimated tokens (не «100k = 400 КБ»); обработка 100k токенов не подтверждена нагрузкой |
 | Расширенный уровень | 2000 RPS | Не реализовано |
 | Автоматический контракт | `POST /process` | present | Реализован: ProcessService + ProcessStore, контрактные тесты зелёные |
@@ -68,7 +68,7 @@ LLM proxy, и как отдельный сервис обработки стро
 | Контекстные комбинационные правила | partial | Есть context scoring, нет общего policy engine |
 | Ловушки «Пушкин» и адрес банка | present | Known-person suppression (включая ФИО с отчеством); адрес организации исключается через negative-контекст |
 | Безопасные логи типов PII | present | Нельзя считать заменой metrics |
-| Latency/RPS/TPS metrics | partial | Latency логируется, RPS/TPS endpoint отсутствует |
+| Latency/RPS/TPS metrics | present | `/metrics` endpoint (Prometheus text): счётчики mask/demask/retry/429, store size, event loop delay, uptime; RPS/latency собираются k6 |
 | Ошибки и деградация | present | Fail-closed и rule_only degradation (ADR-0004) |
 | Ограниченный список систем | present | Allowlist для product API (ADR-0004); evaluation /process без auth |
 

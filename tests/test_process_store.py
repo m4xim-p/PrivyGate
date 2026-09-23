@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from app.errors import TooManyRequestsError
+from app.errors import GoneError, TooManyRequestsError
 from app.process_store import ProcessStore, SessionState
 
 
@@ -248,5 +248,66 @@ def test_completed_ttl_counts_from_completion_not_creation(
         # After the full COMPLETED TTL from completion, it expires.
         clock.advance(30.0)  # 130s since completion > 120s
         assert await store.get("id-1") is None
+
+    asyncio.run(run())
+
+
+def test_evict_expired_background_batch(store: ProcessStore, clock: _FakeClock) -> None:
+    """Background eviction removes expired sessions in bounded batches."""
+
+    async def run() -> None:
+        for i in range(5):
+            await store.get_or_create_pending(f"id-{i}", 10, ("fp", 10))
+            await store.publish_active(f"id-{i}", "orig", "mask", 1, ["PERSON"])
+
+        clock.advance(901.0)
+        # Batch limit of 2: only 2 sessions evicted per call.
+        assert await store.evict_expired(limit=2) == 2
+        assert await store.evict_expired(limit=2) == 2
+        assert await store.evict_expired(limit=2) == 1
+        assert await store.evict_expired(limit=2) == 0
+
+        for i in range(5):
+            assert await store.get(f"id-{i}") is None
+
+    asyncio.run(run())
+
+
+def test_stale_heap_entry_ignored_after_complete(
+    store: ProcessStore, clock: _FakeClock
+) -> None:
+    """A stale ACTIVE heap entry is ignored after the session completes."""
+
+    async def run() -> None:
+        await store.get_or_create_pending("id-1", 10, ("fp", 10))
+        await store.publish_active("id-1", "original", "masked", 1, ["PERSON"])
+
+        # Complete early: COMPLETED TTL (120s) replaces the ACTIVE TTL (900s).
+        clock.advance(10.0)
+        await store.complete("id-1")
+
+        # Advance past the COMPLETED TTL: the session is evicted, but the stale
+        # ACTIVE heap entry (expires_at ~910s) is still in the heap.
+        clock.advance(200.0)  # 210s since completion > 120s
+        assert await store.get("id-1") is None
+
+        # Background eviction must skip the stale ACTIVE entry (session gone).
+        assert await store.evict_expired(limit=10) == 0
+
+    asyncio.run(run())
+
+
+def test_expired_session_returns_410_on_access(
+    store: ProcessStore, clock: _FakeClock
+) -> None:
+    """Accessing an expired payload_id raises GoneError (410)."""
+
+    async def run() -> None:
+        await store.get_or_create_pending("id-1", 10, ("fp", 10))
+        await store.publish_active("id-1", "original", "masked", 1, ["PERSON"])
+
+        clock.advance(901.0)
+        with pytest.raises(GoneError):
+            await store.get_or_create_pending("id-1", 10, ("fp", 10))
 
     asyncio.run(run())

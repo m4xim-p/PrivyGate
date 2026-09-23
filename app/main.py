@@ -11,13 +11,19 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.errors import (
     ForbiddenError,
     ProcessError,
     TooManyRequestsError,
     ValidationError,
+)
+from app.metrics import (
+    EventLoopDelaySampler,
+    ProcessMetrics,
+    StoreEvictionTask,
+    render_prometheus,
 )
 from app.models import ChatCompletionRequest, ProcessRequest, ProcessResponse
 from app.ner import DEFAULT_NER_MODEL_REVISION, NERDetector, TransformersNERBackend
@@ -145,18 +151,33 @@ async def lifespan(app: FastAPI):
         max_workers=int(os.getenv("PROCESS_MASK_WORKERS", "64")),
         ml_detectors=app.state.ml_detectors,
     )
+    app.state.process_metrics = ProcessMetrics()
+    app.state.event_loop_sampler = EventLoopDelaySampler(
+        interval=float(os.getenv("METRICS_EVENT_LOOP_INTERVAL_SECONDS", "1.0"))
+    )
+    app.state.event_loop_sampler.start()
+    app.state.metrics_started_at = time.monotonic()
+    store = ProcessStore(
+        time_func=time.monotonic,
+        active_ttl=float(os.getenv("PROCESS_ACTIVE_TTL_SECONDS", "900")),
+        completed_ttl=float(os.getenv("PROCESS_COMPLETED_TTL_SECONDS", "120")),
+        max_entries=int(os.getenv("PROCESS_STORE_MAX_ENTRIES", "200000")),
+        max_bytes=int(os.getenv("PROCESS_STORE_MAX_BYTES", "536870912")),
+    )
+    app.state.store_eviction_task = StoreEvictionTask(
+        store,
+        app.state.process_metrics,
+        interval=float(os.getenv("STORE_EVICTION_INTERVAL_SECONDS", "1.0")),
+        batch_limit=int(os.getenv("STORE_EVICTION_BATCH_LIMIT", "1000")),
+    )
+    app.state.store_eviction_task.start()
     app.state.process_service = ProcessService(
         engine=app.state.process_engine,
-        store=ProcessStore(
-            time_func=time.monotonic,
-            active_ttl=float(os.getenv("PROCESS_ACTIVE_TTL_SECONDS", "900")),
-            completed_ttl=float(os.getenv("PROCESS_COMPLETED_TTL_SECONDS", "120")),
-            max_entries=int(os.getenv("PROCESS_STORE_MAX_ENTRIES", "25000")),
-            max_bytes=int(os.getenv("PROCESS_STORE_MAX_BYTES", "536870912")),
-        ),
+        store=store,
         waiter_timeout=float(os.getenv("PROCESS_WAITER_TIMEOUT_SECONDS", "5")),
         max_payload_bytes=int(os.getenv("PROCESS_MAX_PAYLOAD_BYTES", "400000")),
         max_estimated_tokens=int(os.getenv("PROCESS_MAX_ESTIMATED_TOKENS", "100000")),
+        metrics=app.state.process_metrics,
     )
     app.state.policy_registry = PolicyRegistry(
         config_path=os.getenv("POLICY_CONFIG_PATH"),
@@ -164,6 +185,8 @@ async def lifespan(app: FastAPI):
     )
     yield
     app.state.process_engine.close()
+    await app.state.store_eviction_task.stop()
+    await app.state.event_loop_sampler.stop()
     await app.state.http_client.aclose()
 
 
@@ -173,6 +196,30 @@ app = FastAPI(title="PrivyGate", version="0.1.0", lifespan=lifespan)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "gateway"}
+
+
+@app.get("/metrics")
+async def metrics(request: Request) -> Response:
+    service = getattr(request.app.state, "process_service", None)
+    metrics_obj = getattr(request.app.state, "process_metrics", None)
+    sampler = getattr(request.app.state, "event_loop_sampler", None)
+    started_at = getattr(request.app.state, "metrics_started_at", time.monotonic())
+    if service is None or metrics_obj is None or sampler is None:
+        return Response(
+            content="metrics not initialized\n",
+            status_code=503,
+            media_type="text/plain",
+        )
+    body = render_prometheus(
+        service.store,
+        metrics_obj,
+        sampler.delay_ms,
+        started_at=started_at,
+    )
+    return Response(
+        content=body,
+        media_type="text/plain; version=0.0.4",
+    )
 
 
 @app.exception_handler(ProcessError)

@@ -18,8 +18,10 @@ dev = [
     "bandit==1.9.4",
     "mypy==2.3.1",
     "pip-audit==2.10.1",
+    "psutil>=7.0,<8",
     "pytest==9.1.1",
     "ruff==0.16.8",
+    "types-psutil>=7.0,<8",
 ]
 ner = [
     "torch>=2.4,<3",

@@ -37,6 +37,9 @@ POST /v1/chat/completions----------+
           +----> ChatProxyService ----> upstream LLM
                          |
                          +----> streaming demasking
+
+GET /metrics ----------> ProcessMetrics + EventLoopDelaySampler
+                         (store size, counters, event loop delay)
 ```
 
 `ProcessService`, `ProcessStore`, `PIIMaskingEngine` и `PolicyRegistry` реализованы.
@@ -57,6 +60,9 @@ consumer identity, применяет allowlist к продуктовому API 
 - `app/process_service.py` — `ProcessService`: оркестратор `/process` (admission,
   валидация, state machine), без regex/tokenizer/masking;
 - `app/errors.py` — domain errors для `/process` (409/413/422/429/410);
+- `app/metrics.py` — `ProcessMetrics` (лёгкие счётчики mask/demask/retry/429),
+  `EventLoopDelaySampler` (фоновая задача замера задержки event loop),
+  `render_prometheus` (Prometheus text для `GET /metrics`);
 - `app/ner.py` — optional PERSON detector и Transformers adapter;
 - `app/main.py` — FastAPI lifespan и OpenAI-like Gateway endpoint;
 - `app/proxy.py` — асинхронный upstream streaming;

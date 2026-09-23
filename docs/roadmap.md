@@ -78,14 +78,32 @@ Roadmap отражает порядок работ, но не заменяет �
 
 ## Трек C — производительность и большие тексты (критерий 3.5, до +2 балла)
 
-**Файлы:** `scripts/load_test_process.py`, конфигурация, `app/process_service.py`.
+**Файлы:** `scripts/load_test_process.py`, конфигурация, `app/process_service.py`,
+`app/pii_engine.py` (ADR-0005).
 **Изолирован:** не трогает `app/pii.py` — можно делать параллельно с Треком B.
 **Почему раньше:** 1000 RPS не подтверждён (~628); latency ≤ 0.5 с — целевой
 уровень критерия 3.5.
 
 - [x] Rate-controlled load test для `/process` (`scripts/load_test_process.py`).
-- [ ] Подтверждение пика 1000 RPS на целевой конфигурации (сейчас ~628 RPS при
-  keepalive=10; 1000 RPS НЕ доказан).
+- [x] Baseline `/process` load test сохранён как воспроизводимый артефакт
+  (`docs/benchmarks/load-test-baseline.md`, ADR-0005).
+- [x] k6 load test (`scripts/k6/process_load.js`) + real-time metrics collector
+  (`scripts/k6/metrics_collector.py`, `run_benchmark.sh`) — профиль 1000 RPS,
+  ramp-up, 200 VU, mask/demask отдельно, retries, 429, store size, event loop
+  delay, CPU/RSS.
+- [x] CPU-профилирование (`scripts/k6/cpu_profile.sh` + `analyze_profile.py`,
+  py-spy) — разбивка по ProcessStore/Detectors/HTTP.
+- [x] `/metrics` endpoint (Prometheus text): счётчики mask/demask/retry/429,
+  store size, event loop delay (Трек D, частично).
+- [x] **Оптимизация `ProcessStore` eviction (ADR-0006)** — min-heap индекс
+  истечения, ленивая проверка TTL, фоновая eviction порциями. Устранил
+  bottleneck: ProcessStore 78.77% → 0.70% активного CPU, RPS 528 → 748,
+  latency упала на порядки, event loop delay 0ms.
+- [ ] Кэширование предсобранных детекторов в `PIIMaskingEngine` (ADR-0005,
+  superseded) — вторичная оптимизация для роста RPS выше 748.
+- [ ] Подтверждение пика 1000 RPS на целевой конфигурации (после ADR-0006:
+  RPS ~748, mask p95 12.91ms, dropped_iterations 33 — 1000 RPS ещё не доказан,
+  остаточное ограничение — worker threads маскирования).
 - [ ] Профиль нагрузки: ступенчатый разгон до 1000 RPS с удержанием, до 200
   connections; дополнительно сверять средний RPS (~330 по уточнению организаторов).
 - [ ] Равное количество masking и demasking запросов с последовательной парой.
@@ -104,8 +122,10 @@ Roadmap отражает порядок работ, но не заменяет �
 **Изолирован:** не трогает `app/pii.py` — можно делать параллельно с Треком B.
 **Почему здесь:** небольшой прирост баллов (+0.5-1), но нужен для демо и критерия 3.6.
 
-- [ ] Metrics endpoint (RPS/TPS/latency) + Mean/p50/p95/p99, error/429 и cache-hit
+- [x] Metrics endpoint (RPS/TPS/latency) + Mean/p50/p95/p99, error/429 и cache-hit
   metrics. Сейчас latency логируется, но отдельного metrics endpoint нет.
+- [x] `/metrics` endpoint (Prometheus text): счётчики mask/demask/retry/429,
+  store size (sessions/pending/tombstones/bytes), event loop delay, uptime.
 - [ ] Логирование выявленных типов ПДН по каждому запросу (подтвердить).
 
 Критерий готовности: `/metrics` отдаёт RPS/TPS/latency; логи содержат типы ПДН
@@ -155,7 +175,7 @@ Roadmap отражает порядок работ, но не заменяет �
 |---|---|---|
 | A — политики | `app/policy.py`, `main.py`, `process_service.py` | 1 человек |
 | B — качество | `app/pii.py`, тесты детекторов | 1 человек (файл общий) |
-| C — производительность | `scripts/`, конфиг | 1 человек |
+| C — производительность | `scripts/`, конфиг, `pii_engine.py` | 1 человек |
 | D — metrics | `main.py`, `metrics.py` | 1 человек |
 | E — доп. возможности | `pii.py`, `policy.py` | после A/B |
 | F — сдача | README, docs | 1 человек |

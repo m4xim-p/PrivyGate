@@ -129,6 +129,45 @@ curl -X POST http://localhost:8000/process \
 `payload too large: maximum context length is N tokens, but you requested M tokens`.
 Byte и token лимиты проверяются отдельно (не «100k = 400 КБ»).
 
+## Метрики (`GET /metrics`)
+
+Gateway отдаёт runtime-метрики в формате Prometheus text по `GET /metrics`
+(реализация — `app/metrics.py`). Endpoint лёгкий: только чтение счётчиков и
+размеров store, без дорогих вычислений в hot path. Не логирует raw PII.
+
+```bash
+curl http://localhost:8000/metrics
+```
+
+Доступные метрики:
+
+| Метрика | Тип | Описание |
+|---|---|---|
+| `privygate_uptime_seconds` | gauge | Время работы процесса. |
+| `privygate_process_mask_total` | counter | Успешные маскирования `/process`. |
+| `privygate_process_demask_total` | counter | Успешные демаскирования `/process`. |
+| `privygate_process_retry_total` | counter | Повторные запросы (retry masking/demasking). |
+| `privygate_process_rate_limited_total` | counter | Ответы `429` (admission limit / waiter timeout). |
+| `privygate_process_conflict_total` | counter | Конфликты `409` (payload_id с другим payload). |
+| `privygate_process_error_total` | counter | Внутренние ошибки `5xx`. |
+| `privygate_process_new_id_total` | counter | Новые уникальные `payload_id`. |
+| `privygate_store_evictions_total` | counter | Число evicted (истёкших) сессий. |
+| `privygate_store_sessions` | gauge | Число сессий в store (ACTIVE + COMPLETED). |
+| `privygate_store_pending` | gauge | Число pending-запросов (ожидают маскирования). |
+| `privygate_store_tombstones` | gauge | Число tombstone-записей (истёкшие payload_id). |
+| `privygate_store_bytes` | gauge | Приблизительный размер store в байтах. |
+| `privygate_event_loop_delay_ms` | gauge | Задержка event loop (мс), замеряется фоновой задачей. |
+
+Счётчики инкрементируются в `ProcessService` (лёгкие атомарные инкременты, не в
+hot path). Размер store читается из in-memory store на запрос. Event loop delay
+сэмплируется отдельной фоновой задачей (`EventLoopDelaySampler`), не в request
+path.
+
+Store использует min-heap индекс истечения (ADR-0006): ленивая проверка TTL при
+обращении к `payload_id`, eviction перед проверкой capacity, фоновая очистка
+истёкших записей небольшими порциями (`StoreEvictionTask`). Это устраняет O(n)
+скан всех сессий на каждый запрос (исходный bottleneck, 78% активного CPU).
+
 ### Политики потребителей (ADR-0004)
 
 Per-consumer настройка маскирования через `PolicyRegistry`. Конфиг — JSON-файл,
@@ -274,6 +313,55 @@ python scripts/load_test.py --concurrency 100
 Для каждого запроса измеряются время до первого непустого чанка и полная
 latency. Итоговый отчёт содержит throughput, average, p50/p95 и распределение
 ошибок. В запросах используются только синтетические email и телефоны.
+
+## Нагрузочное тестирование `/process` (k6)
+
+Воспроизводимый benchmark контракта `/process` по профилю AlfaSonar
+(разгон до 1000 RPS, до 200 соединений, keep-alive, masking/demasking поровну,
+retries, 429). Требуется [k6](https://k6.io) (`brew install k6`) и запущенный
+gateway с `/metrics`.
+
+```bash
+# Полный профиль (ramp 60s + hold 60s, peak 1000 RPS, 200 VU)
+scripts/k6/run_benchmark.sh --container privygate-bench
+
+# Уменьшенный профиль для быстрой проверки
+scripts/k6/run_benchmark.sh --ramp 30 --hold 30 --peak 1000 --vus 200 --container privygate-bench
+```
+
+`run_benchmark.sh` запускает параллельно:
+
+- **k6** (`scripts/k6/process_load.js`) — HTTP-метрики: latency (mask/demask
+  отдельно), RPS, retries, 429, новые ID, round-trip checks;
+- **Python-сборщик** (`scripts/k6/metrics_collector.py`) — real-time серверные
+  метрики: store size, event loop delay (через `/metrics`), CPU/RSS процесса
+  (через `--container` для docker или `--pid` для host-процесса).
+
+Опции `run_benchmark.sh`: `--ramp`, `--hold`, `--peak`, `--vus`, `--duration`
+(длительность сборщика), `--container`/`--pid` (источник CPU/RSS).
+
+### CPU-профилирование (py-spy)
+
+Для снятия CPU-профиля с разбивкой по функциям (ProcessStore / детекторы /
+HTTP) во время нагрузки используется `py-spy` внутри контейнера:
+
+```bash
+# Установить py-spy в контейнер (один раз)
+docker exec privygate-bench pip install py-spy
+
+# Снять CPU-профиль во время 5-минутного прогона (ramp 60s + hold 240s)
+scripts/k6/cpu_profile.sh --container privygate-bench --peak 1000 --ramp 60 --hold 240 --vus 200
+```
+
+`cpu_profile.sh` запускает `py-spy record` внутри контейнера параллельно с k6,
+затем анализирует профиль через `scripts/k6/analyze_profile.py`, агрегируя
+сэмплы по категориям: `ProcessStore`, `Detectors`, `HTTP`, `Idle` (idle worker
+threads). Результат — разбивка активного CPU по категориям и топ функций.
+
+Результаты фиксируются в [`docs/benchmarks/load-test-baseline.md`](docs/benchmarks/load-test-baseline.md)
+и служат точкой сравнения для подтверждения/опровержения улучшений или регрессий
+после изменений (правило AGENTS.md: производительные оптимизации принимаются
+только вместе с воспроизводимым benchmark).
 
 ## Optional local NER
 
