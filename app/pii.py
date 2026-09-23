@@ -523,6 +523,21 @@ class INNDetector:
                         confidence=self._confidence,
                     )
                 )
+                continue
+            # Non-valid-checksum INN in explicit "ИНН" context (recall-first).
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self._context
+            )
+            if confidence >= 0.80:
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=confidence,
+                    )
+                )
         # 13-digit INN in explicit "ИНН" context (checksum may not validate).
         for match in INN_13_PATTERN.finditer(text):
             confidence = _context_confidence(
@@ -640,22 +655,46 @@ class CardDetector:
 
     def __init__(self, confidence: float = 1.0) -> None:
         self._confidence = confidence
+        self._context = ContextConfig(
+            positive_context_weights={
+                "карта": 0.45,
+                "карты": 0.45,
+                "номер карты": 0.45,
+                "card": 0.45,
+            },
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
         matches: list[PIIMatch] = []
         for match in CARD_PATTERN.finditer(text):
             digits = _digits(match.group(0))
-            if not _passes_luhn(digits):
-                continue
-            matches.append(
-                PIIMatch(
-                    pii_type=self.pii_type,
-                    value=match.group(0),
-                    start=match.start(),
-                    end=match.end(),
-                    confidence=self._confidence,
+            if _passes_luhn(digits):
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=self._confidence,
+                    )
                 )
+                continue
+            # Non-Luhn card in explicit "карта" context (recall-first).
+            if _is_sequential_digits(digits):
+                continue
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self._context
             )
+            if confidence >= 0.80:
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=confidence,
+                    )
+                )
         return matches
 
 
@@ -677,6 +716,16 @@ def _passes_luhn(digits: str) -> bool:
                 value -= 9
         checksum += value
     return checksum % 10 == 0
+
+
+def _is_sequential_digits(digits: str) -> bool:
+    """Return True when digits are sequential (e.g. 1234567890123456)."""
+    if len(digits) < 2:
+        return False
+    return all(
+        int(digits[i + 1]) == (int(digits[i]) + 1) % 10
+        for i in range(len(digits) - 1)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -774,7 +823,7 @@ def _is_abbreviation_continuation(text: str, period_index: int) -> bool:
 
 
 def _is_date_start(text: str, index: int) -> bool:
-    """Return True when a date (ISO or numeric) starts at ``index``."""
+    """Return True when a date (ISO, numeric, or textual) starts at ``index``."""
     if index + 9 >= len(text):
         return False
     # ISO YYYY-MM-DD
@@ -795,12 +844,32 @@ def _is_date_start(text: str, index: int) -> bool:
     ):
         return True
     # Slash DD/MM/YYYY
-    return (
+    if (
         text[index : index + 2].isdigit()
         and text[index + 2] == "/"
         and text[index + 3 : index + 5].isdigit()
         and text[index + 5] == "/"
-    )
+    ):
+        return True
+    # Textual date: "15 сентября 2021 г."
+    return _is_textual_date_start(text, index)
+
+
+def _is_textual_date_start(text: str, index: int) -> bool:
+    """Return True when a textual date (day + month word) starts at ``index``."""
+    if index + 2 >= len(text):
+        return False
+    if not text[index : index + 2].isdigit():
+        return False
+    # Skip day digits, then expect a month word.
+    j = index
+    while j < len(text) and text[j].isdigit():
+        j += 1
+    if j >= len(text) or text[j] != " ":
+        return False
+    j += 1
+    # Match a Russian month word.
+    return any(text.startswith(month, j) for month in RUSSIAN_MONTHS)
 
 
 def _is_sentence_end(text: str, period_index: int) -> bool:
@@ -1001,7 +1070,7 @@ class DateOfBirthDetector:
                     confidence=confidence,
                 )
             )
-        # Numeric day + month word: "19 мая 1963 г."
+# Numeric day + month word: "19 мая 1963 г."
         for match in NUMERIC_DAY_MONTH_PATTERN.finditer(text):
             num_day = int(match.group("day"))
             num_month = RUSSIAN_MONTHS.get(match.group("month").casefold())
@@ -1234,7 +1303,7 @@ class CitizenshipDetector:
 
     @staticmethod
     def _trim_start(text: str, start: int) -> int:
-        while start < len(text) and text[start] in " \t":
+        while start < len(text) and text[start] in " \t:;":
             start += 1
         return start
 
@@ -1683,8 +1752,8 @@ class CardHolderDetector:
 # intentionally broad; the dataset membership check does the real filtering.
 NAME_CANDIDATE_PATTERN = re.compile(
     r"(?<![а-яёa-z0-9])"
-    r"(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?)"
-    r"(?:\s+[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?){0,3}"
+    r"(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?|[А-ЯЁ]{2,}(?:-[А-ЯЁ]{2,})?)"
+    r"(?:\s+(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?|[А-ЯЁ]{2,}(?:-[А-ЯЁ]{2,})?)){0,3}"
     r"(?![а-яёa-z0-9])"
 )
 

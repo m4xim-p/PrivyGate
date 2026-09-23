@@ -58,6 +58,29 @@ def test_date_of_birth_textual_without_year() -> None:
     assert match.value == "пятнадцатого марта"
 
 
+def test_date_of_birth_numeric_day_month_word() -> None:
+    text = "Дата рождения 1 января 1980 г."
+    match = DateOfBirthDetector().detect(text)[0]
+
+    assert match.pii_type == "DATE_OF_BIRTH"
+    assert match.value == "1 января 1980 г."
+    assert PIIMasker().mask(text) == "Дата рождения __PII_DATE_OF_BIRTH_1__"
+
+
+def test_date_of_birth_numeric_day_month_word_19() -> None:
+    text = "Дата рождения 19 мая 1963 г."
+    match = DateOfBirthDetector().detect(text)[0]
+
+    assert match.value == "19 мая 1963 г."
+
+
+def test_date_of_birth_numeric_day_month_word_single_digit() -> None:
+    text = "Дата рождения 8 марта 1981 г."
+    match = DateOfBirthDetector().detect(text)[0]
+
+    assert match.value == "8 марта 1981 г."
+
+
 def test_date_of_birth_case_insensitive() -> None:
     text = "ДАТА РОЖДЕНИЯ 15.03.1990"
     match = DateOfBirthDetector().detect(text)[0]
