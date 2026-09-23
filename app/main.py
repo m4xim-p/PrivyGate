@@ -70,11 +70,15 @@ def _mask_payload(
     *,
     enabled_pii_types: frozenset[str] | None = None,
     masking_mode: str = "typed_placeholder",
+    ml_detectors: Sequence[PIIDetector] | None = None,
+    degradation: str = "fail_closed",
 ) -> tuple[dict[str, object], PIIMasker]:
     masker = PIIMasker(
         detectors=detectors,
         enabled_pii_types=enabled_pii_types,
         masking_mode=masking_mode,
+        ml_detectors=ml_detectors,
+        degradation=degradation,
     )
     payload = body.as_upstream_payload()
     for message in payload["messages"]:
@@ -95,6 +99,7 @@ async def lifespan(app: FastAPI):
         int(os.getenv("NER_MAX_CONCURRENCY", "1"))
     )
     detectors = list(default_rule_detectors())
+    ml_detectors: list[PIIDetector] = []
     if app.state.ner_enabled:
         model_name = os.getenv("NER_MODEL", "LLAIMlegal/ru-legal-ner")
         model_revision = os.getenv("NER_MODEL_REVISION", DEFAULT_NER_MODEL_REVISION)
@@ -108,6 +113,7 @@ async def lifespan(app: FastAPI):
                 device=device,
                 max_length=int(os.getenv("NER_MAX_LENGTH", "512")),
                 stride=int(os.getenv("NER_STRIDE", "64")),
+                offline=_env_enabled("NER_OFFLINE", default=True),
             )
         except Exception as exc:
             logger.error(
@@ -116,7 +122,7 @@ async def lifespan(app: FastAPI):
                 type(exc).__name__,
             )
             raise
-        detectors.append(
+        ml_detectors.append(
             NERDetector(
                 ner_backend,
                 min_confidence=float(os.getenv("NER_MIN_CONFIDENCE", "0.80")),
@@ -130,9 +136,11 @@ async def lifespan(app: FastAPI):
             device,
         )
     app.state.pii_detectors = tuple(detectors)
+    app.state.ml_detectors = tuple(ml_detectors)
     app.state.process_engine = PIIMaskingEngine(
         app.state.pii_detectors,
         max_workers=int(os.getenv("PROCESS_MASK_WORKERS", "64")),
+        ml_detectors=app.state.ml_detectors,
     )
     app.state.process_service = ProcessService(
         engine=app.state.process_engine,
@@ -230,13 +238,16 @@ async def chat_completions(
     detectors = getattr(request.app.state, "pii_detectors", None)
     if detectors is None:
         detectors = default_rule_detectors()
+    ml_detectors = getattr(request.app.state, "ml_detectors", None)
     mask_kwargs = (
         {
             "enabled_pii_types": policy.effective_pii_types,
             "masking_mode": policy.masking_mode,
+            "ml_detectors": ml_detectors,
+            "degradation": policy.degradation,
         }
         if policy is not None
-        else {}
+        else {"ml_detectors": ml_detectors}
     )
     if getattr(request.app.state, "ner_enabled", False):
         async with request.app.state.ner_semaphore:

@@ -1,6 +1,7 @@
 """Optional local NER adapter with no import-time ML dependencies."""
 
 import logging
+import os
 import re
 import time
 from collections.abc import Sequence
@@ -174,6 +175,7 @@ class TransformersNERBackend:
         device: str = "cpu",
         max_length: int = 512,
         stride: int = 64,
+        offline: bool = True,
     ) -> "TransformersNERBackend":
         try:
             import torch
@@ -182,6 +184,12 @@ class TransformersNERBackend:
             raise RuntimeError(
                 "NER dependencies are missing; install PrivyGate with the 'ner' extra"
             ) from exc
+
+        if offline:
+            # Force loading from the local model cache only; never download from
+            # the Hugging Face Hub at runtime (security.md: offline/pinned NER).
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+            os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
         tokenizer = AutoTokenizer.from_pretrained(
             model_name,

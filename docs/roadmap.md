@@ -40,13 +40,14 @@ Roadmap отражает порядок работ, но не заменяет �
 - [x] Allowlist и optional API keys для продуктового API; не блокировать evaluation
   `/process`, который приходит без auth headers.
 - [x] Per-consumer PII types и thresholds (enabled/excluded_pii_types, min_confidence).
-- [ ] Per-consumer masking mode: synthetic/format_preserving не реализованы
-  (всегда typed placeholder).
+- [x] Per-consumer masking mode: synthetic (фиксированная синтетика) и
+  format_preserving (сохранение длины/разделителей) реализованы.
 - [x] Per-consumer demasking permission (allow_demasking).
 - [x] Fail-closed для `/process` при недоступности детектора (5xx, не raw текст).
-- [ ] Degradation policy `rule_only` не реализована (только fail_closed).
-- [ ] Offline/pinned NER deployment: revision закреплён, но HF_HUB_OFFLINE/
-  TRANSFORMERS_OFFLINE не заданы в коде (только в docs/security.md).
+- [x] Degradation policy `rule_only`: при недоступности ML/NER-детектора
+  продолжается rule-based маскирование.
+- [x] Offline/pinned NER deployment: HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE задаются
+  в коде (NER_OFFLINE, по умолчанию true).
 - [x] Failure injection tests (fail-closed на недоступном детекторе).
 
 Критерий готовности: per-consumer настройка работает без правки ядра; evaluation

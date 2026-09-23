@@ -1727,6 +1727,8 @@ class PIIMasker:
         min_confidence: float = DEFAULT_MASKING_CONFIDENCE,
         enabled_pii_types: frozenset[str] | None = None,
         masking_mode: str = "typed_placeholder",
+        ml_detectors: Sequence[PIIDetector] | None = None,
+        degradation: str = "fail_closed",
     ) -> None:
         self.mapping: dict[str, str] = {}
         self.decisions: list[PIIDecision] = []
@@ -1738,16 +1740,25 @@ class PIIMasker:
             if detectors is not None
             else default_rule_detectors()
         )
+        self._ml_detectors = tuple(ml_detectors or ())
         self._min_confidence = min_confidence
         self._enabled_pii_types = enabled_pii_types
         self._masking_mode = masking_mode
+        self._degradation = degradation
 
     def mask(self, text: str) -> str:
-        candidates = [
-            match
-            for detector in self._detectors
-            for match in detector.detect(text)
-        ]
+        candidates: list[PIIMatch] = []
+        for detector in self._detectors:
+            candidates.extend(detector.detect(text))
+        for detector in self._ml_detectors:
+            try:
+                candidates.extend(detector.detect(text))
+            except Exception:
+                if self._degradation == "rule_only":
+                    # Degrade gracefully: skip the ML detector and continue
+                    # with rule-based detectors only.
+                    continue
+                raise
         candidates.sort(key=lambda match: (match.start, match.end, match.pii_type))
         eligible = [
             match
@@ -1781,7 +1792,9 @@ class PIIMasker:
         for match in matches:
             masked_parts.append(text[previous_end : match.start])
             self._counters[match.pii_type] = self._counters.get(match.pii_type, 0) + 1
-            placeholder = self._placeholder(match.pii_type, self._counters[match.pii_type])
+            placeholder = self._placeholder(
+                match.pii_type, self._counters[match.pii_type], match.value
+            )
             self.mapping[placeholder] = match.value
             self._pii_types.add(match.pii_type)
             masked_parts.append(placeholder)
@@ -1795,12 +1808,49 @@ class PIIMasker:
             return True
         return pii_type in self._enabled_pii_types
 
-    def _placeholder(self, pii_type: str, index: int) -> str:
+    def _placeholder(self, pii_type: str, index: int, value: str) -> str:
         if self._masking_mode == "typed_placeholder":
             return f"__PII_{pii_type}_{index}__"
-        # Other modes (synthetic, format_preserving) are extensions; keep the
-        # typed placeholder as the safe default until they are implemented.
+        if self._masking_mode == "synthetic":
+            return self._synthetic_value(pii_type, index)
+        if self._masking_mode == "format_preserving":
+            return self._format_preserving(value, index)
         return f"__PII_{pii_type}_{index}__"
+
+    @staticmethod
+    def _synthetic_value(pii_type: str, index: int) -> str:
+        """Fixed synthetic replacement per PII type (unique per index)."""
+        base = {
+            "PERSON": "Иванов Иван Иванович",
+            "DATE_OF_BIRTH": "01.01.1990",
+            "BIRTH_PLACE": "г. Москва",
+            "PASSPORT": "45 10 123456",
+            "CITIZENSHIP": "Российская Федерация",
+            "PASSPORT_AUTHORITY": "УФМС России",
+            "PASSPORT_UNIT_CODE": "770-001",
+            "PASSPORT_ISSUE_DATE": "01.01.2010",
+            "DRIVING_LICENSE": "77 01 123456",
+            "ADDRESS": "г. Москва, ул. Тестовая, д. 1",
+            "EMAIL": "user@example.com",
+            "PHONE": "+7 900 000 00 00",
+            "INN": "770708389301",
+            "CARD": "4000 0000 0000 0000",
+            "CVV": "000",
+            "PIN": "0000",
+            "CARD_HOLDER": "IVANOV IVAN",
+        }.get(pii_type, "PII")
+        return f"{base}_{index}"
+
+    @staticmethod
+    def _format_preserving(value: str, index: int) -> str:
+        """Replace each non-space char with '*' keeping length and separators."""
+        out: list[str] = []
+        for ch in value:
+            if ch.isspace():
+                out.append(" ")
+            else:
+                out.append("*")
+        return "".join(out)
 
     def result(self, text: str) -> MaskingResult:
         return MaskingResult(text=self.mask(text), mapping=dict(self.mapping))

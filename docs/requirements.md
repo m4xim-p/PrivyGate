@@ -63,13 +63,13 @@ LLM proxy, и как отдельный сервис обработки стро
 | Включение/отключение потребителей | present | PolicyRegistry: allowlist + enabled флаг (ADR-0004) |
 | Демаскирование по политике потребителя | present | ConsumerPolicy.allow_demasking (ADR-0004) |
 | Маска AlfaSonar | present | Typed placeholders допустимы; нужно измерить точность PII spans |
-| Выбор masking strategy по потребителю | missing | masking_mode декларирован, но synthetic/format_preserving не реализованы |
+| Выбор masking strategy по потребителю | present | masking_mode: typed_placeholder, synthetic, format_preserving |
 | Независимость от регистра | partial | Реализовано не во всех detector одинаково |
 | Контекстные комбинационные правила | partial | Есть context scoring, нет общего policy engine |
 | Ловушки «Пушкин» и адрес банка | partial | Есть known-person suppression; адрес организации не решён системно |
 | Безопасные логи типов PII | present | Нельзя считать заменой metrics |
 | Latency/RPS/TPS metrics | partial | Latency логируется, RPS/TPS endpoint отсутствует |
-| Ошибки и деградация | partial | Fail-closed для /process есть; degradation rule_only не реализована |
+| Ошибки и деградация | present | Fail-closed и rule_only degradation (ADR-0004) |
 | Ограниченный список систем | present | Allowlist для product API (ADR-0004); evaluation /process без auth |
 
 ## Нефункциональные ограничения

@@ -23,8 +23,10 @@ class PIIMaskingEngine:
         *,
         max_workers: int = 32,
         default_policy: ConsumerPolicy | None = None,
+        ml_detectors: Sequence[PIIDetector] | None = None,
     ) -> None:
         self._detectors = tuple(detectors)
+        self._ml_detectors = tuple(ml_detectors or ())
         self._default_policy = default_policy or ConsumerPolicy(
             consumer_id="alfasonar"
         )
@@ -47,6 +49,8 @@ class PIIMaskingEngine:
                 ),
                 enabled_pii_types=profile.effective_pii_types,
                 masking_mode=profile.masking_mode,
+                ml_detectors=self._ml_detectors,
+                degradation=profile.degradation,
             )
             masked = masker.mask(text)
             return masked, len(masker.mapping), masker.pii_types

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from app.pii import PIIMasker, default_rule_detectors
 from app.policy import ConsumerPolicy, PolicyRegistry
 
@@ -162,3 +164,60 @@ def test_masker_excludes_pii_types() -> None:
     assert "test@example.com" in masked
     assert "Иван Иванов" not in masked
     assert "+7 900 123 45 67" not in masked
+
+
+def test_masker_synthetic_mode() -> None:
+    text = "Иван Иванов, email test@example.com"
+    masker = PIIMasker(
+        detectors=default_rule_detectors(),
+        masking_mode="synthetic",
+    )
+    masked = masker.mask(text)
+    assert "test@example.com" not in masked
+    assert "user@example.com_1" in masked
+    assert "Иванов Иван Иванович_1" in masked
+
+
+def test_masker_format_preserving_mode() -> None:
+    text = "Иван Иванов, паспорт 45 10 123456"
+    masker = PIIMasker(
+        detectors=default_rule_detectors(),
+        masking_mode="format_preserving",
+    )
+    masked = masker.mask(text)
+    assert "Иван Иванов" not in masked
+    assert "45 10 123456" not in masked
+    # Length and separators preserved.
+    assert "**** *****" in masked
+    assert "** ** ******" in masked
+
+
+def test_masker_rule_only_degradation() -> None:
+    class _FailingMLDetector:
+        def detect(self, text: str) -> list:
+            raise RuntimeError("ml unavailable")
+
+    text = "Иван Иванов, email test@example.com"
+    masker = PIIMasker(
+        detectors=default_rule_detectors(),
+        ml_detectors=[_FailingMLDetector()],  # type: ignore[list-item]
+        degradation="rule_only",
+    )
+    masked = masker.mask(text)
+    # Rule-based masking still works despite ML failure.
+    assert "Иван Иванов" not in masked
+    assert "test@example.com" not in masked
+
+
+def test_masker_fail_closed_raises_on_ml_error() -> None:
+    class _FailingMLDetector:
+        def detect(self, text: str) -> list:
+            raise RuntimeError("ml unavailable")
+
+    masker = PIIMasker(
+        detectors=default_rule_detectors(),
+        ml_detectors=[_FailingMLDetector()],  # type: ignore[list-item]
+        degradation="fail_closed",
+    )
+    with pytest.raises(RuntimeError):
+        masker.mask("Иван Иванов")
