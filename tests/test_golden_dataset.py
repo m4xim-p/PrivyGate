@@ -75,7 +75,7 @@ REQUIRED_CATEGORIES = {
 BASELINE = {
     "golden": {"f1": 0.934, "recall": 0.963, "exact_span_accuracy": 0.975},
     "api": {"f1": 0.843, "recall": 0.801, "exact_span_accuracy": 0.917},
-    "extended": {"f1": 0.906, "recall": 0.960, "exact_span_accuracy": 0.960},
+    "extended": {"f1": 0.912, "recall": 0.963, "exact_span_accuracy": 0.963},
     "variants": {"f1": 0.937, "recall": 0.909, "exact_span_accuracy": 0.968},
 }
 

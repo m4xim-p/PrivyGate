@@ -227,7 +227,9 @@ def _find_anchor_spans(text: str) -> list[int] | list[tuple[int, int]]:  # noqa:
         for m in re.finditer(r'\b(?:address|registered at|lives at)\b\s*:?\s*',
                              text, re.I):
             if m.end() < len(text):
-                anchors.append(m.end())
+                # Return a full span to end of line so the whole English
+                # address is captured ("Registered at: 101000, Moscow, ...").
+                return [(m.end(), len(text))]
     return sorted(set(anchors))
 
 
