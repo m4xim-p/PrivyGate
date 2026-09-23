@@ -77,9 +77,9 @@ def sample_container(container: str | None) -> dict[str, float]:
     if container is None:
         return {"cpu_percent": float("nan"), "rss_bytes": float("nan")}
     try:
-        import subprocess
+        import subprocess  # nosec B404 - dev-only metrics collector, fixed args
 
-        out = subprocess.run(
+        out = subprocess.run(  # nosec B603 B607 - fixed arg list, no shell
             [
                 "docker",
                 "stats",
