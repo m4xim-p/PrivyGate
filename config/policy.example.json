@@ -35,6 +35,20 @@
       "excluded_pii_types": ["PHONE"],
       "allow_demasking": true,
       "api_keys": ["CHANGE_ME_call_center_api_key"]
+    },
+    {
+      "consumer_id": "synthetic-agent",
+      "enabled": true,
+      "masking_mode": "synthetic",
+      "allow_demasking": true,
+      "api_keys": ["CHANGE_ME_synthetic_api_key"]
+    },
+    {
+      "consumer_id": "format-agent",
+      "enabled": true,
+      "masking_mode": "format_preserving",
+      "allow_demasking": true,
+      "api_keys": ["CHANGE_ME_format_api_key"]
     }
   ]
 }

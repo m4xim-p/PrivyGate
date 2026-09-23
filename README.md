@@ -199,6 +199,34 @@ Per-consumer настройка маскирования через `PolicyRegis
 `/process` (AlfaSonar) всегда использует default profile `alfasonar` без auth.
 Allowlist применяется только к продуктовому `/v1/chat/completions`.
 
+### Типы маскирования (`masking_mode`)
+
+Каждая система-потребитель может выбрать вид маскирования через поле
+`masking_mode`. Доступны три режима:
+
+| Режим | Описание | Пример для `Иван Иванов, email ivan@example.com` |
+|---|---|---|
+| `typed_placeholder` (по умолчанию) | Замена на типизированный placeholder | `__PII_PERSON_1__, email __PII_EMAIL_1__` |
+| `synthetic` | Замена на фиксированные синтетические данные | `Иванов Иван Иванович_1, email user@example.com_1` |
+| `format_preserving` | Сохранение длины и разделителей, символы → `*` | `**** ******, email ****************` |
+
+Пример конфига с синтетическим маскированием:
+
+```json
+{
+  "consumer_id": "synthetic-agent",
+  "enabled": true,
+  "masking_mode": "synthetic",
+  "allow_demasking": true,
+  "api_keys": ["CHANGE_ME_synthetic_api_key"]
+}
+```
+
+`typed_placeholder` — безопасный default для AlfaSonar (ADR-0003). `synthetic` и
+`format_preserving` — дополнительные возможности для отдельных consumer profiles
+(критерий 3.7). Во всех режимах mapping хранит original, поэтому demasking
+работает одинаково.
+
 ### Dev-only просмотр полного запроса к mock backend
 
 Для ручной проверки masking на синтетических данных можно явно включить полный
