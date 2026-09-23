@@ -104,19 +104,21 @@ Roadmap отражает порядок работ, но не заменяет �
   отклоняются с 429 + Retry-After (защита 410 сохраняется).
 - [x] Полный 5-минутный прогон: **~1000 HTTP RPS на hold** (999.5), mask p95
   9ms, dropped_iterations ~0 на hold, tombstones bounded.
+- [x] Профиль нагрузки: ступенчатый разгон до 1000 RPS с удержанием, до 200
+  connections (k6 `ramping-arrival-rate`, 200 VU); средний RPS ~330 сверяется.
+- [x] Равное количество masking и demasking запросов с последовательной парой
+  (k6 `processPair`: mask → demask на один `payload_id`).
+- [x] Baseline single-process in-memory store (benchmark-артефакт,
+  `docs/benchmarks/load-test-baseline.md`).
+- [x] Проверка memory usage (RSS bounded в benchmark) и timeout behavior.
 - [ ] Кэширование предсобранных детекторов в `PIIMaskingEngine` (ADR-0005,
   superseded) — **вывод про worker threads пока не подтверждён**, требуется
   CPU-профиль на hold-фазе при 1000 RPS.
 - [ ] Подтверждение пика 1000 RPS на целевой конфигурации (после ADR-0006:
   hold-фаза ~999.5 HTTP RPS, mask p95 9ms, dropped_iterations ~0 — близко к
   цели, требуется финальное подтверждение).
-- [ ] Профиль нагрузки: ступенчатый разгон до 1000 RPS с удержанием, до 200
-  connections; дополнительно сверять средний RPS (~330 по уточнению организаторов).
-- [ ] Равное количество masking и demasking запросов с последовательной парой.
-- [ ] Baseline single-process in-memory store.
 - [ ] Bounded NER concurrency и backpressure.
 - [ ] Chunked/bounded обработка до 100 000 токенов.
-- [ ] Проверка memory usage и timeout behavior.
 - [ ] ONNX/quantization или shared store только при подтверждённом bottleneck.
 
 Критерий готовности: сохранён benchmark с версией кода, конфигурацией, hardware и
@@ -129,7 +131,7 @@ Roadmap отражает порядок работ, но не заменяет �
 **Почему здесь:** небольшой прирост баллов (+0.5-1), но нужен для демо и критерия 3.6.
 
 - [x] Metrics endpoint (RPS/TPS/latency) + Mean/p50/p95/p99, error/429 и cache-hit
-  metrics. Сейчас latency логируется, но отдельного metrics endpoint нет.
+  metrics. Реализован `/metrics` (Prometheus text); RPS/latency собираются k6.
 - [x] `/metrics` endpoint (Prometheus text): счётчики mask/demask/retry/429,
   store size (sessions/pending/tombstones/bytes), event loop delay, uptime.
 - [ ] Логирование выявленных типов ПДН по каждому запросу (подтвердить).
