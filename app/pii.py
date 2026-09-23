@@ -930,6 +930,25 @@ class DateOfBirthDetector:
                     confidence=confidence,
                 )
             )
+        for match in NUMERIC_DAY_MONTH_PATTERN.finditer(text):
+            n_day = int(match.group("day"))
+            n_month = RUSSIAN_MONTHS.get(match.group("month").casefold())
+            n_year_text = match.group("year")
+            n_year = int(n_year_text) if n_year_text else None
+            if n_month is None:
+                continue
+            if n_year is not None and not _is_valid_calendar_date(n_day, n_month, n_year):
+                continue
+            confidence = self._confidence(text, match.start(), match.end())
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
         matches.extend(self._english_date_matches(text))
         return matches
 
