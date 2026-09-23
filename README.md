@@ -168,6 +168,13 @@ Store использует min-heap индекс истечения (ADR-0006): 
 истёкших записей небольшими порциями (`StoreEvictionTask`). Это устраняет O(n)
 скан всех сессий на каждый запрос (исходный bottleneck, 78% активного CPU).
 
+Tombstone TTL = 60s (небольшой запас после COMPLETED TTL 120s), настраивается
+через `PROCESS_TOMBSTONE_TTL_SECONDS`. `tombstone_max_entries` по умолчанию
+100 000 (`PROCESS_TOMBSTONE_MAX_ENTRIES`). Действующие tombstones **никогда не
+вытесняются рано** (это сломало бы защиту `410`); при достижении лимита новые
+`payload_id` отклоняются с `429` + `Retry-After`, пока tombstones не истекут по
+TTL.
+
 ### Политики потребителей (ADR-0004)
 
 Per-consumer настройка маскирования через `PolicyRegistry`. Конфиг — JSON-файл,

@@ -163,6 +163,10 @@ async def lifespan(app: FastAPI):
         completed_ttl=float(os.getenv("PROCESS_COMPLETED_TTL_SECONDS", "120")),
         max_entries=int(os.getenv("PROCESS_STORE_MAX_ENTRIES", "200000")),
         max_bytes=int(os.getenv("PROCESS_STORE_MAX_BYTES", "536870912")),
+        tombstone_ttl=float(os.getenv("PROCESS_TOMBSTONE_TTL_SECONDS", "60")),
+        tombstone_max_entries=int(
+            os.getenv("PROCESS_TOMBSTONE_MAX_ENTRIES", "100000")
+        ),
     )
     app.state.store_eviction_task = StoreEvictionTask(
         store,

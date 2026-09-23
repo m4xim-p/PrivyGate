@@ -46,6 +46,11 @@ const maskLatency = new Trend("mask_latency", true);
 const demaskLatency = new Trend("demask_latency", true);
 const allLatency = new Trend("all_latency", true);
 
+// Hold-phase-only latency trends (achieved metrics during the hold stage).
+const maskLatencyHold = new Trend("mask_latency_hold", true);
+const demaskLatencyHold = new Trend("demask_latency_hold", true);
+const allLatencyHold = new Trend("all_latency_hold", true);
+
 // Counters.
 const maskCount = new Counter("mask_count");
 const demaskCount = new Counter("demask_count");
@@ -55,9 +60,16 @@ const rateLimitedCount = new Counter("rate_limited_count");
 const conflictCount = new Counter("conflict_count");
 const errorCount = new Counter("error_count");
 
+// Hold-phase-only counters.
+const maskCountHold = new Counter("mask_count_hold");
+const demaskCountHold = new Counter("demask_count_hold");
+
 // Rates.
 const maskSuccessRate = new Rate("mask_success_rate");
 const demaskSuccessRate = new Rate("demask_success_rate");
+
+// Scenario start time (ms) for phase detection.
+const SCENARIO_START = Date.now();
 
 export const options = {
   scenarios: {
@@ -136,12 +148,20 @@ export function processPair() {
   const payloadId = `k6-${runId}-${__VU}-${__ITER}`;
   const payload = syntheticPayload(requestNumber);
 
+  // Phase detection: hold starts after the ramp stage.
+  const elapsedSec = (Date.now() - SCENARIO_START) / 1000;
+  const isHold = elapsedSec >= RAMP_SECONDS;
+
   // Masking.
   const mask = sendWithRetries(payload, payloadId, "mask");
   maskLatency.add(mask.latency, { op: "mask" });
   allLatency.add(mask.latency, { op: "mask" });
   maskCount.add(1);
   newIdCount.add(1);
+  if (isHold) {
+    maskLatencyHold.add(mask.latency, { op: "mask" });
+    maskCountHold.add(1);
+  }
 
   if (mask.resp.status === 429) {
     // Rate-limited masking: no demasking for this pair.
@@ -163,6 +183,10 @@ export function processPair() {
   demaskLatency.add(demask.latency, { op: "demask" });
   allLatency.add(demask.latency, { op: "demask" });
   demaskCount.add(1);
+  if (isHold) {
+    demaskLatencyHold.add(demask.latency, { op: "demask" });
+    demaskCountHold.add(1);
+  }
 
   if (demask.resp.status === 429) {
     demaskSuccessRate.add(false);

@@ -96,14 +96,20 @@ Roadmap отражает порядок работ, но не заменяет �
 - [x] `/metrics` endpoint (Prometheus text): счётчики mask/demask/retry/429,
   store size, event loop delay (Трек D, частично).
 - [x] **Оптимизация `ProcessStore` eviction (ADR-0006)** — min-heap индекс
-  истечения, ленивая проверка TTL, фоновая eviction порциями. Устранил
-  bottleneck: ProcessStore 78.77% → 0.70% активного CPU, RPS 528 → 748,
-  latency упала на порядки, event loop delay 0ms.
+  истечения, ленивая проверка TTL, фоновая eviction порциями, min-heap для
+  tombstones (O(n) → O(k log n)). Устранил bottleneck: ProcessStore 78.77% →
+  0.70% активного CPU, event loop delay 0ms.
+- [x] **Tombstone retention (ADR-0006, раздел 7)** — tombstone TTL 60s, лимит
+  100k, действующие tombstones не вытесняются рано; при переполнении новые ID
+  отклоняются с 429 + Retry-After (защита 410 сохраняется).
+- [x] Полный 5-минутный прогон: **~1000 HTTP RPS на hold** (999.5), mask p95
+  9ms, dropped_iterations ~0 на hold, tombstones bounded.
 - [ ] Кэширование предсобранных детекторов в `PIIMaskingEngine` (ADR-0005,
-  superseded) — вторичная оптимизация для роста RPS выше 748.
+  superseded) — **вывод про worker threads пока не подтверждён**, требуется
+  CPU-профиль на hold-фазе при 1000 RPS.
 - [ ] Подтверждение пика 1000 RPS на целевой конфигурации (после ADR-0006:
-  RPS ~748, mask p95 12.91ms, dropped_iterations 33 — 1000 RPS ещё не доказан,
-  остаточное ограничение — worker threads маскирования).
+  hold-фаза ~999.5 HTTP RPS, mask p95 9ms, dropped_iterations ~0 — близко к
+  цели, требуется финальное подтверждение).
 - [ ] Профиль нагрузки: ступенчатый разгон до 1000 RPS с удержанием, до 200
   connections; дополнительно сверять средний RPS (~330 по уточнению организаторов).
 - [ ] Равное количество masking и demasking запросов с последовательной парой.

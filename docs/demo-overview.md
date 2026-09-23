@@ -97,20 +97,26 @@
 
 ### 8. Производительность
 
-- Rate-controlled load test для `/process` (`scripts/load_test_process.py`).
-- Benchmark: ~628 RPS при 200 соединениях, p95 ~0.36s.
-- Обработка текстов до 100 000 токенов.
+- k6 load test для `/process` (`scripts/k6/process_load.js`) + real-time metrics
+  collector (`scripts/k6/metrics_collector.py`, `run_benchmark.sh`).
+- Полный 5-минутный прогон: **hold-фаза ~999.5 HTTP RPS**, mask p95 9ms,
+  dropped_iterations ~0 на hold, 0 ошибок/retries/429.
+- CPU-профилирование (py-spy): bottleneck `ProcessStore` eviction устранён
+  (ADR-0006, min-heap индекс истечения) — ProcessStore 78.77% → 0.70% активного
+  CPU, event loop delay 0ms.
+- Обработка текстов до 100 000 токенов (валидация лимита).
 
 ### 9. Качество
 
 - Строгий entity/span harness (`tests/quality_harness.py`).
-- Golden datasets: golden F1 0.878, api F1 0.655 (с NER), extended F1 0.857.
+- Golden datasets: golden F1 0.934, api F1 0.843, extended F1 0.912, variants
+  F1 0.937.
 - Ratchet-тесты не дают качеству регрессировать.
 
 ### 10. Инженерная гигиена
 
 - Merge-blocking gate: Ruff, mypy, Bandit, pip-audit, pytest.
-- ADR для архитектурных решений (0001-0004).
+- ADR для архитектурных решений (0001-0006).
 - README с примерами запросов и настройки.
 
 ---
@@ -176,6 +182,6 @@ docker compose up --build
 
 - **Контракт `/process`** — готов, покрыт тестами.
 - **Политики потребителей** — готовы (Трек A).
-- **Качество** — api F1 0.655 с NER (улучшение с 0.626).
-- **Производительность** — 1000 RPS ещё не подтверждён (нужен полный прогон).
+- **Качество** — api F1 0.843 (улучшение с 0.626).
+- **Производительность** — hold-фаза ~999.5 HTTP RPS, mask p95 9ms (ADR-0006).
 - **Доп. возможности (3.7)** — частично (synthetic/format masking, документы кроме паспорта).

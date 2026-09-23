@@ -65,8 +65,8 @@ class ProcessStore:
         completed_ttl: float = 120.0,
         max_entries: int = 25000,
         max_bytes: int = 536870912,
-        tombstone_ttl: float = 3600.0,
-        tombstone_max_entries: int = 50000,
+        tombstone_ttl: float = 60.0,
+        tombstone_max_entries: int | None = None,
     ) -> None:
         self._time = time_func
         self._active_ttl = active_ttl
@@ -74,7 +74,12 @@ class ProcessStore:
         self.max_entries = max_entries
         self.max_bytes = max_bytes
         self._tombstone_ttl = tombstone_ttl
-        self._tombstone_max_entries = tombstone_max_entries
+        # Tombstones are cheap (~40 bytes); default the limit to 100k so they
+        # never evict live entries before their TTL at the target RPS. New IDs
+        # are rejected with 429 when the limit is reached.
+        self._tombstone_max_entries = (
+            tombstone_max_entries if tombstone_max_entries is not None else 100000
+        )
 
         self._sessions: dict[str, ProcessSession] = {}
         self._pending: dict[str, _Pending] = {}
@@ -84,6 +89,8 @@ class ProcessStore:
         # Min-heap of (expires_at, version, payload_id) for lazy eviction.
         self._expiry_heap: list[tuple[float, int, str]] = []
         self._version_counter = 0
+        # Min-heap of (expiry, payload_id) for bounded tombstone cleanup.
+        self._tombstone_heap: list[tuple[float, str]] = []
 
     async def get_or_create_pending(
         self, payload_id: str, payload_bytes: int, fingerprint: str
@@ -117,6 +124,13 @@ class ProcessStore:
                 raise TooManyRequestsError("store entry limit reached", retry_after=1.0)
             if self.current_bytes + payload_bytes > self.max_bytes:
                 raise TooManyRequestsError("store byte limit reached", retry_after=1.0)
+            if len(self._tombstones) >= self._tombstone_max_entries:
+                # Tombstone capacity exhausted: reject new IDs with 429 instead
+                # of evicting live tombstones (which would break the 410
+                # guarantee for still-active payload_ids).
+                raise TooManyRequestsError(
+                    "tombstone capacity reached", retry_after=1.0
+                )
 
             future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
             self._pending[payload_id] = _Pending(
@@ -211,6 +225,7 @@ class ProcessStore:
             self._pending.clear()
             self._tombstones.clear()
             self._expiry_heap.clear()
+            self._tombstone_heap.clear()
             self.current_bytes = 0
 
     def _is_tombstoned_locked(self, payload_id: str) -> bool:
@@ -231,7 +246,13 @@ class ProcessStore:
         now = self._time()
         self._sessions.pop(payload_id, None)
         self.current_bytes -= session.session_bytes
-        self._tombstones[payload_id] = now + self._tombstone_ttl
+        # Only create a tombstone if capacity allows; otherwise the ID is
+        # simply forgotten (new IDs are already rejected with 429 when the
+        # tombstone limit is reached, so this is a rare edge case).
+        if len(self._tombstones) < self._tombstone_max_entries:
+            expiry = now + self._tombstone_ttl
+            self._tombstones[payload_id] = expiry
+            heapq.heappush(self._tombstone_heap, (expiry, payload_id))
         self._trim_tombstones_locked()
 
     def _evict_expired_locked(self, limit: int | None = None) -> int:
@@ -275,13 +296,19 @@ class ProcessStore:
             return self._evict_expired_locked(limit=limit)
 
     def _trim_tombstones_locked(self) -> None:
-        if len(self._tombstones) <= self._tombstone_max_entries:
-            return
+        """Remove only expired tombstones (O(k log n), not O(n)).
+
+        Live tombstones are NEVER evicted early: doing so would break the 410
+        guarantee for still-active payload_ids. Capacity is instead enforced by
+        rejecting new IDs with 429 when the tombstone limit is reached.
+        """
         now = self._time()
-        for payload_id in list(self._tombstones):
-            if len(self._tombstones) <= self._tombstone_max_entries:
+        while self._tombstone_heap:
+            expiry, payload_id = self._tombstone_heap[0]
+            if expiry > now:
                 break
-            if self._tombstones[payload_id] <= now:
+            heapq.heappop(self._tombstone_heap)
+            if self._tombstones.get(payload_id) == expiry:
                 self._tombstones.pop(payload_id, None)
 
     def _completed_future(self, session: ProcessSession) -> asyncio.Future[str]:

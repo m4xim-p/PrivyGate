@@ -90,15 +90,48 @@ TTL 120s. Оценка: при 1000 RPS и паре mask/demask (~500 пар/с)
 (SECURITY.md). Точное значение фиксируется в конфигурации и проверяется
 benchmark.
 
-### 7. Затрагиваемые компоненты
+### 7. Tombstone TTL и bounded tombstone store
+
+Исходный `tombstone_ttl = 3600s` (1 час) избыточен: tombstone должен быть
+**краткоживущим** (ADR-0002) и покрывать только парный вызов и retries после
+ошибки/429 (evaluation-contract). При 1000 RPS за 1 час накопится ~3.6M
+tombstones, что гарантированно превышает лимит 50k и приводит к принудительному
+вытеснению живых tombstones → нарушение защиты `410` (повторный `payload_id`
+принимается как новый).
+
+Решение:
+
+- `tombstone_ttl = 60s` — небольшой запас "висяка" после COMPLETED TTL (120s).
+  COMPLETED уже покрывает retry после потерянного demasking response; tombstone
+  60s — дополнительный буфер, чтобы не принять повторный `payload_id` как новый.
+- `tombstone_max_entries = 100 000` (по умолчанию, через env
+  `PROCESS_TOMBSTONE_MAX_ENTRIES`). Tombstone крошечный (~40 байт), поэтому
+  лимит можно сделать большим без риска OOM.
+- **Действующие tombstones никогда не вытесняются рано.** `_trim_tombstones_locked`
+  удаляет только истёкшие по TTL. При достижении лимита новые `payload_id`
+  отклоняются с `429` + `Retry-After` (в `get_or_create_pending`), пока tombstones
+  не истекут по TTL. Это сохраняет защиту `410` для всех действующих ID.
+- `tombstone_ttl` и `tombstone_max_entries` прокидываются из env
+  (`PROCESS_TOMBSTONE_TTL_SECONDS`, `PROCESS_TOMBSTONE_MAX_ENTRIES`), а не
+  скрыты дефолтами.
+
+**Расчёт безопасного лимита:** `tombstone_max_entries ≥ payload_id/с ×
+tombstone_ttl`. Для 2100 RPS: 1050 × 60 = 63 000 < 100 000 (запас 1.6x). Для
+1000 RPS: 500 × 60 = 30 000 — ещё меньше. При превышении лимита новые ID
+получают `429`, а не теряют защиту `410`.
+
+### 8. Затрагиваемые компоненты
 
 - `app/process_store.py` — min-heap индекс, ленивая проверка TTL, eviction
-  перед capacity, фоновая очистка.
-- `app/main.py` — запуск/остановка фоновой eviction-задачи.
-- `app/metrics.py` — счётчик `privygate_store_evictions_total`.
+  перед capacity, фоновая очистка, tombstone TTL 180s, callback ранних
+  вытеснений.
+- `app/main.py` — запуск/остановка фоновой eviction-задачи, env для tombstone.
+- `app/metrics.py` — счётчики `privygate_store_evictions_total`,
+  `privygate_store_tombstones_evicted_early_total`.
 - `app/pii_engine.py` — кэш детекторов (вторично, из ADR-0005, после основного
   фикса).
-- `docker-compose.yml` / env — новое значение `PROCESS_STORE_MAX_ENTRIES`.
+- `docker-compose.yml` / env — `PROCESS_STORE_MAX_ENTRIES`,
+  `PROCESS_TOMBSTONE_TTL_SECONDS`, `PROCESS_TOMBSTONE_MAX_ENTRIES`.
 
 ## Последствия
 

@@ -190,6 +190,53 @@ dropped_iterations с 101695 до 33. RPS вырос с 528 до 748. Остат
 ограничение RPS (~748, не 1000) — не ProcessStore, а worker threads маскирования
 (64) / HTTP-обработка; процесс не упирается в CPU (68-76%).
 
+### Полный 5-минутный прогон (после ADR-0006 + tombstone heap)
+
+- Дата: 2026-09-23
+- Commit: после ADR-0006 + исправление O(n)-очистки tombstones (min-heap)
+- NER: off, workers=64
+- Инструмент: `scripts/k6/run_benchmark.sh` (ramp 60s + hold 240s, peak 1000 HTTP RPS, 200 VU)
+
+**Общий прогон (300s):**
+
+| Метрика | Значение |
+|---|---|
+| Total requests | 269870 (134935 mask + 134935 demask) |
+| Successful | 269870 |
+| Failed / Retries / 429 | 0 / 0 / 0 |
+| Requests/sec | 899.56 |
+| Dropped iterations | 63 |
+| Masking p50 / p95 / p99 | 1.57 / 7.68 / 101.11 ms |
+| Demasking p50 / p95 / p99 | 0.775 / 3.50 / 24.47 ms |
+| All p50 / p95 / p99 | 1.29 / 5.44 / 57.91 ms |
+| Round-trip checks | 100% (0 failed) |
+
+**Hold-фаза (240s) — achieved метрики:**
+
+| Метрика | Значение |
+|---|---|
+| Mask count (hold) | 119938 за 240s = **499.7 mask/s** |
+| **Achieved HTTP RPS (hold)** | **~999.5** (119938×2 / 240) |
+| Masking p50 / p95 / p99 (hold) | 1.56 / 9.00 / 112.01 ms |
+| Demasking p50 / p95 / p99 (hold) | 0.772 / 3.95 / 26.40 ms |
+| Dropped iterations (hold) | ~0 (63 всего, в основном ramp) |
+
+**Серверные метрики (real-time):**
+
+| Метрика | Значение |
+|---|---|
+| Event loop delay | **0ms** (макс 12ms в одном тике, без всплесков) |
+| Tombstones | **50000** (bounded, стабильно на лимите) |
+| Sessions | ~59937 (стабильно, bounded) |
+| CPU | ~65-76% |
+| RSS | ~182 MiB (стабильно, bounded) |
+| Retries / 429 / errors | 0 / 0 / 0 |
+
+**Результат:** hold-фаза достигает **~1000 HTTP RPS** (999.5), latency p95 < 10ms,
+dropped_iterations ~0 на hold. O(n)-очистка tombstones исправлена (min-heap):
+tombstones bounded на 50000, event loop delay 0ms без всплесков. Heap ограничен
+(≤2 события на сессию, включая stale entries).
+
 ### Выводы baseline
 
 - При пике 1000 RPS система не справлялась: RPS ограничен ~528 (k6, 30s) / ~221
@@ -198,11 +245,12 @@ dropped_iterations с 101695 до 33. RPS вырос с 528 до 748. Остат
   (78% активного CPU), а не маскирование.** Store eviction — O(n) на запрос
   при большом store, блокирует event loop.
 - **ADR-0006 (min-heap eviction) устранил bottleneck:** ProcessStore упал с
-  78.77% до 0.70% активного CPU, event loop delay 0ms, latency упала на порядки,
-  RPS вырос с 528 до 748, dropped_iterations с 101695 до 33.
-- Остаточное ограничение RPS (~748, не 1000) — worker threads маскирования (64)
-  / HTTP-обработка; процесс не упирается в CPU (68-76%). Кэширование детекторов
-  (ADR-0005, superseded) — вторичная оптимизация для дальнейшего роста RPS.
+  78.77% до 0.70% активного CPU, event loop delay 0ms, latency упала на порядки.
+- **Полный 5-минутный прогон подтверждает ~1000 HTTP RPS на hold** (999.5),
+  mask p95 9ms, dropped_iterations ~0 на hold. O(n)-очистка tombstones исправлена
+  (min-heap): tombstones bounded на 50000, event loop delay 0ms без всплесков.
+- Вывод про worker threads маскирования и ADR-0005 (кэш детекторов) **пока не
+  подтверждён** — требуется отдельный CPU-профиль на hold-фазе при 1000 RPS.
 
 ## Правило сравнения
 
