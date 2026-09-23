@@ -270,6 +270,9 @@ async def chat_completions(
             mapping=masker.mapping,
             request_id=request_id,
             pii_types=masker.pii_types,
+            allow_demasking=(
+                policy.allow_demasking if policy is not None else True
+            ),
         )
     except (httpx.HTTPError, OSError) as exc:
         # Log only the exception class: an exception message can contain unsafe data.

@@ -148,12 +148,13 @@ class PolicyRegistry:
         """Allowlist check for the product API.
 
         A consumer is allowed when it is registered and its API key matches.
-        ``/process`` (consumer_id=None) is always allowed and uses the default
-        profile; the allowlist applies only to product endpoints.
+        A missing consumer identity is denied: the product API requires an
+        explicit ``X-Consumer-ID``. The evaluation ``/process`` endpoint does
+        not call this method and always uses the default ``alfasonar`` profile.
         """
         self._maybe_reload()
         if consumer_id is None:
-            return True
+            return False
         with self._lock:
             entry = self._entries.get(consumer_id)
         if entry is None:

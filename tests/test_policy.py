@@ -50,9 +50,9 @@ def test_resolve_registered_consumer(tmp_path) -> None:
     assert policy.min_confidence == 0.9
 
 
-def test_is_allowed_process_always_allowed() -> None:
+def test_is_allowed_missing_consumer_denied() -> None:
     registry = PolicyRegistry()
-    assert registry.is_allowed(None, None) is True
+    assert registry.is_allowed(None, None) is False
 
 
 def test_is_allowed_unknown_consumer_denied() -> None:

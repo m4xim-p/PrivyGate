@@ -26,6 +26,7 @@ async def open_upstream_stream(
     mapping: dict[str, str],
     request_id: str,
     pii_types: list[str],
+    allow_demasking: bool = True,
 ) -> UpstreamStream:
     started_at = time.perf_counter()
     request = client.build_request(
@@ -54,16 +55,20 @@ async def open_upstream_stream(
         )
 
     async def iter_demasked() -> AsyncIterator[str]:
-        demasker = StreamingDemasker(mapping)
+        demasker = StreamingDemasker(mapping) if allow_demasking else None
         status = "completed"
         try:
             async for chunk in response.aiter_text():
+                if demasker is None:
+                    yield chunk
+                    continue
                 restored = demasker.feed(chunk)
                 if restored:
                     yield restored
-            tail = demasker.flush()
-            if tail:
-                yield tail
+            if demasker is not None:
+                tail = demasker.flush()
+                if tail:
+                    yield tail
         except Exception:
             status = "stream_error"
             raise
