@@ -1,5 +1,7 @@
 """Request-scoped PII masking and boundary-safe streaming demasking."""
 
+from __future__ import annotations
+
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -56,6 +58,8 @@ SNILS_PATTERN = re.compile(
     r"(?<![0-9])[0-9]{3}[- ]?[0-9]{3}[- ]?[0-9]{3}[ ]?[0-9]{2}(?![0-9])"
 )
 INN_PATTERN = re.compile(r"(?<![0-9])(?:[0-9]{12}|[0-9]{10})(?![0-9])")
+KPP_PATTERN = re.compile(r"(?<![0-9])[0-9]{9}(?![0-9])")
+OGRN_PATTERN = re.compile(r"(?<![0-9])[0-9]{13}(?![0-9])")
 CARD_PATTERN = re.compile(r"(?<![0-9])(?:[0-9][ -]?){12,18}[0-9](?![0-9])")
 
 DEFAULT_MASKING_CONFIDENCE = 0.80
@@ -502,6 +506,72 @@ class INNDetector:
         )
 
 
+class KPPDetector:
+    """Detect a KPP (tax registration reason code) anchored by context."""
+
+    pii_type = "KPP"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "кпп": 0.45,
+                "кпп ": 0.45,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in KPP_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            if confidence < 0.80:
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
+class OGRNDetector:
+    """Detect an OGRN (primary state registration number) anchored by context."""
+
+    pii_type = "OGRN"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "огрн": 0.45,
+                "огрнип": 0.45,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in OGRN_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            if confidence < 0.80:
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
 class CardDetector:
     pii_type = "CARD"
 
@@ -927,6 +997,8 @@ class BirthPlaceDetector:
                 "родилась в": 0.35,
                 "родился в городе": 0.40,
                 "родилась в городе": 0.40,
+                "родился": 0.40,
+                "родилась": 0.40,
             },
         )
 
@@ -937,6 +1009,12 @@ class BirthPlaceDetector:
             for marker in re.finditer(re.escape(phrase.casefold()), normalized):
                 start = self._trim_start(text, marker.end())
                 start = self._skip_place_markers(text, start)
+                # For bare "родился"/"родилась", skip a date and find "в".
+                if phrase in ("родился", "родилась"):
+                    place_start = self._skip_to_place(text, start)
+                    if place_start is None:
+                        continue
+                    start = place_start
                 end = self._place_end(text, start)
                 if end <= start:
                     continue
@@ -953,6 +1031,24 @@ class BirthPlaceDetector:
                     )
                 )
         return matches
+
+    @staticmethod
+    def _skip_to_place(text: str, start: int) -> int | None:
+        """Skip a date/suffix after 'родился' and return the position after 'в'.
+
+        Returns None when no 'в' (place marker) is found, so a bare date after
+        'родился' is not misclassified as a birth place.
+        """
+        lowered = text.casefold()
+        idx = start
+        while idx < len(text):
+            if lowered.startswith("в ", idx):
+                return idx + 2
+            if text[idx].isalpha():
+                idx += 1
+                continue
+            idx += 1
+        return None
 
     @staticmethod
     def _skip_place_markers(text: str, start: int) -> int:
@@ -978,7 +1074,7 @@ class BirthPlaceDetector:
                 break
             if character == ".":
                 # Keep abbreviations like "г." and "ул." inside the value.
-                if end + 1 < len(text) and text[end + 1].isalpha():
+                if _is_abbreviation_continuation(text, end):
                     end += 1
                     continue
                 break
@@ -1166,10 +1262,10 @@ class PassportIssueDateDetector:
         self.config = config if config is not None else ContextConfig(
             context_window_chars=120,
             positive_context_weights={
-                "дата выдачи": 0.40,
-                "выдан": 0.35,
-                "выдано": 0.35,
-                "выдана": 0.35,
+                "дата выдачи": 0.45,
+                "выдан": 0.40,
+                "выдано": 0.40,
+                "выдана": 0.40,
             },
         )
 
@@ -1777,6 +1873,8 @@ def default_rule_detectors(
         PassportDetector(),
         SNILSDetector(),
         INNDetector(),
+        KPPDetector(),
+        OGRNDetector(),
         CardDetector(),
         DateOfBirthDetector(),
         BirthPlaceDetector(),
