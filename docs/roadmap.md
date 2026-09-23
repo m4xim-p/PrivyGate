@@ -61,8 +61,9 @@ Roadmap отражает порядок работ, но не заменяет �
 **Почему раньше:** главный риск для допуска и баллов — низкий api recall (FN=112)
 может дать утечку ПДН в LLM (стоп-сигнал финалистов) и снижение по 3.1.
 
-- [ ] Поднять api recall (сейчас 0.536, выше порога 0.50, но низкий): FN в
-  сложных предложениях (PASSPORT_ISSUE_DATE, PERSON, ADDRESS, DATE_OF_BIRTH, INN).
+- [ ] Поднять api recall (rule-based 0.536; с NER 0.578, F1 0.655 — улучшение, но
+  всё ещё ниже целевого): FN в сложных предложениях (PASSPORT_ISSUE_DATE, PERSON,
+  ADDRESS, DATE_OF_BIRTH, INN).
 - [ ] Снизить FP: PHONE (горячая линия/служба поддержки), ADDRESS (организации),
   EMAIL, DRIVING_LICENSE.
 - [ ] Исправление границ context detectors и overlap conflicts.
