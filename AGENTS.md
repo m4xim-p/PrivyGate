@@ -18,7 +18,7 @@ Preflight выполняется **один раз** перед началом �
      подтверждение владельца проекта о профиле нагрузки;
    - `docs/source/evaluation-criteria.md` — критерии оценивания жюри (30 баллов) и критерии финалистов;
    - `SECURITY.md` — обязательный merge-blocking security checklist;
-   - `CONTRIBUTING.md` — командный workflow и ownership hotspot-файлов;
+   - координация команды и ownership hotspot-файлов (см. ниже);
    - `docs/requirements.md` — цели, ограничения и матрица покрытия;
    - `docs/architecture.md` — границы компонентов и разрешённые зависимости;
    - `docs/evaluation-contract.md` — неизменяемый контракт AlfaSonar `/process`;
@@ -55,7 +55,18 @@ Preflight выполняется **один раз** перед началом �
 2. `docs/architecture.md` и принятые ADR;
 3. `docs/roadmap.md`.
 
-`CONTRIBUTING.md` определяет командный workflow и ownership hotspot-файлов.
+### Координация команды и ownership hotspot-файлов
+
+- Перед началом зафиксируйте задачу, ответственного и ожидаемые файлы в общем task
+  board или командном чате.
+- У одного hotspot-файла в конкретный момент должен быть один активный владелец.
+- Для `app/pii.py`, `app/main.py`, `docker-compose.yml` и contract models обязательно
+  согласуйте пересечение до начала правок.
+- Независимые задачи можно выполнять параллельно; запрет относится к несогласованному
+  редактированию одного hotspot, а не к параллельной работе вообще.
+- Перед merge обновитесь от актуального `main` и повторно проверьте diff: не включайте
+  чужие незавершённые изменения в свой PR.
+
 После изменения обновить документацию, ADR или requirements matrix, если
 фактическое состояние изменилось.
 
@@ -107,7 +118,7 @@ Preflight выполняется **один раз** перед началом �
 - Качество detection/masking измеряется строгим entity/span harness
   (`tests/quality_harness.py`) по golden datasets (`tests/data/*.csv`). Span/type
   errors не засчитываются как TP; смешанные кейсы относят сущности к реальным
-  категориям, а не к OVERLAPPING. Baseline зафиксирован в `docs/quality-baseline.md`
+  категориям, а не к OVERLAPPING. Baseline зафиксирован в `docs/benchmarks/quality-baseline.md`
   и не должен регрессировать (ratchet в `tests/test_golden_dataset.py`).
 
 ## Pre-push checklist (обязательный перед каждым push/PR)

@@ -1,5 +1,59 @@
 # Архитектура PrivyGate
 
+## Схема для жюри
+
+Цепочка «Система-потребитель → Модуль (идентификация → маскирование → LLM →
+демаскирование) → Потребитель»:
+
+```text
+┌─────────────────────┐
+│ Система-потребитель │  (CRM, колл-центр, email-агент, ...)
+└──────────┬──────────┘
+           │  POST /v1/chat/completions   (X-Consumer-ID, API-ключ)
+           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                     GATEWAY  (:8000)                          │
+│                                                              │
+│  ┌──────────────┐   ┌─────────────────────────────────────┐  │
+│  │ PolicyRegistry│   │        PII-ядро (единое)            │  │
+│  │ - allowlist   │   │  детекторы → overlap resolution     │  │
+│  │ - consumer    │──▶│  → confidence → маскирование        │  │
+│  │   profile     │   │  (typed/synthetic/format_preserving)│  │
+│  └──────────────┘   └─────────────────────────────────────┘  │
+│                                                              │
+│  Детекторы PII-ядра:                                          │
+│  ┌────────────────────────────┐  ┌─────────────────────────┐ │
+│  │ Внутренние rule-based      │  │ Локальный NER           │ │
+│  │ правила (regex, checksum,  │  │ (Hugging Face,          │ │
+│  │ контекст, 17 категорий)    │  │ LLAIMlegal/ru-legal-ner,│ │
+│  │ app/pii.py                 │  │ offline, app/ner.py)    │ │
+│  └────────────────────────────┘  └─────────────────────────┘ │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │  UpstreamClient + ModelRegistry (маршрутизация)      │    │
+│  └──────────────────────────┬───────────────────────────┘    │
+└─────────────────────────────┼────────────────────────────────┘
+                              │  замаскированный запрос
+                              ▼
+              ┌───────────────────────────────┐
+              │  LLM (mock-1/2/3 или реальная) │
+              └───────────────────────────────┘
+                              │  streaming замаскированный ответ
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│                     GATEWAY  (:8000)                          │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │  StreamingDemasker (boundary-safe, только если        │    │
+│  │  consumer имеет allow_demasking)                      │    │
+│  └──────────────────────────────────────────────────────┘    │
+└──────────────────────────────┬────────────────────────────────┘
+                               │  демаскированный ответ
+                               ▼
+┌─────────────────────┐
+│     Потребитель      │
+└─────────────────────┘
+```
+
 ## Решение
 
 PrivyGate предоставляет два API-адаптера над единым PII-ядром:
@@ -73,6 +127,19 @@ consumer identity, применяет allowlist к продуктовому API 
 - `app/routing.py` — in-memory Round Robin;
 - `mock_llm/main.py` — три конфигурируемых mock backend процесса.
 
+### Таблица компонентов
+
+| Компонент | Файл | Роль |
+|---|---|---|
+| PII-ядро | `app/pii.py`, `app/pii_engine.py` | Детекторы, overlap resolution, маскирование, streaming demasking |
+| PolicyRegistry | `app/policy.py` | Per-consumer профили, allowlist, masking mode, custom terms |
+| ProcessService/Store | `app/process_service.py`, `app/process_store.py` | Контракт `/process`, state machine, TTL store |
+| UpstreamClient | `app/upstream.py` | OpenAI-compatible upstream (SSE/text), auth, таймауты |
+| ModelRegistry | `app/model_registry.py` | Маршрутизация по `model`, квоты токенов |
+| Metrics | `app/metrics.py` | `/metrics` (Prometheus text), event loop delay |
+| NER (optional) | `app/ner.py` | Локальный PERSON-детектор (Transformers, offline) |
+| Mock LLM | `mock_llm/main.py` | Три конфигурируемых mock backend |
+
 ## Разрешённое направление зависимостей
 
 ```text
@@ -109,6 +176,22 @@ Mapping существует только временно внутри `PIIMask
 mapping. Detector отвечает только за кандидатов. Решение «маскировать или нет» и
 вид маски принадлежат policy/application layer. Это позволяет менять weights и
 context words без переписывания endpoints.
+
+### Два источника детекторов
+
+Детекторы делятся на два источника:
+
+- **Внутренние rule-based правила** (`app/pii.py`) — regex, checksum (Luhn,
+  контрольные цифры ИНН/СНИЛС), контекстные слова и границы. Покрывают все
+  17 обязательных категорий ПДН. Работают всегда, без внешних зависимостей.
+- **Локальный NER** (`app/ner.py`, optional) — Transformers-модель
+  `LLAIMlegal/ru-legal-ner` с Hugging Face. Используется для PERSON detection.
+  Модель скачивается при сборке образа в `/models/ner` и в runtime грузится с
+  `local_files_only=True` (offline, без сети). Включается через `NER_ENABLED=true`.
+
+Оба источника возвращают `PIIMatch` с offsets исходного текста и проходят один
+общий overlap resolution и маскирование — единый pipeline, без дублирования
+логики.
 
 ## Поток `/process`
 
