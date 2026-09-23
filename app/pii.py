@@ -1231,6 +1231,9 @@ class PassportAuthorityDetector:
             if _is_date_start(text, end):
                 break
             end += 1
+        # Trim trailing whitespace so the span ends exactly at the value.
+        while end > start and text[end - 1] in " \t":
+            end -= 1
         return end
 
 
@@ -1243,7 +1246,9 @@ class PassportUnitCodeDetector:
         self.config = config if config is not None else ContextConfig(
             positive_context_weights={
                 "код подразделения": 0.40,
+                "код подр": 0.40,
                 "подразделение": 0.30,
+                "подр": 0.30,
             },
         )
 
