@@ -221,3 +221,105 @@ def test_masker_fail_closed_raises_on_ml_error() -> None:
     )
     with pytest.raises(RuntimeError):
         masker.mask("Иван Иванов")
+
+
+def test_custom_term_masks_exact_word_case_insensitive() -> None:
+    """Custom terms are masked as exact words, case-insensitively."""
+    from app.pii import CustomTermDetector
+
+    detector = CustomTermDetector(["проект-альфа", "секрет"])
+    text = "Проект-АЛЬФА запущен, секрет хранится, а секретный файл нет."
+    matches = detector.detect(text)
+
+    # "Проект-АЛЬФА" and "секрет" matched; "секретный" (substring) not matched.
+    values = [m.value for m in matches]
+    assert "Проект-АЛЬФА" in values
+    assert "секрет" in values
+    assert "секретный" not in values
+
+
+def test_custom_term_masked_via_masker() -> None:
+    """Custom terms are masked through PIIMasker even if not in enabled types."""
+    from app.pii import CustomTermDetector
+
+    masker = PIIMasker(
+        detectors=default_rule_detectors() + (CustomTermDetector(["секрет"]),),
+        custom_terms=("секрет",),
+    )
+    masked = masker.mask("Данные секрет и email test@example.com")
+    assert "секрет" not in masked
+    assert "__PII_CUSTOM_TERM_1__" in masked
+    assert "test@example.com" not in masked
+
+
+def test_custom_term_not_masked_without_terms() -> None:
+    """Without custom_terms, the term is not masked."""
+    masker = PIIMasker(detectors=default_rule_detectors())
+    masked = masker.mask("Данные секрет")
+    assert "секрет" in masked
+
+
+def test_custom_term_overlap_wins() -> None:
+    """Custom term (confidence 1.0) wins over overlapping real PII."""
+    from app.pii import CustomTermDetector
+
+    masker = PIIMasker(
+        detectors=default_rule_detectors() + (CustomTermDetector(["Иванов"]),),
+        custom_terms=("Иванов",),
+    )
+    masked = masker.mask("Иванов Иван")
+    # "Иванов" is a custom term (confidence 1.0) and wins over PERSON.
+    assert "__PII_CUSTOM_TERM_1__" in masked
+
+
+def test_custom_term_round_trip() -> None:
+    """Custom terms are restored on demasking (mapping round-trip)."""
+    from app.pii import CustomTermDetector
+
+    masker = PIIMasker(
+        detectors=default_rule_detectors() + (CustomTermDetector(["секрет"]),),
+        custom_terms=("секрет",),
+    )
+    text = "Данные секрет"
+    masked = masker.mask(text)
+    assert "секрет" not in masked
+    # Mapping restores the original value.
+    restored = masked
+    for placeholder, value in masker.mapping.items():
+        restored = restored.replace(placeholder, value)
+    assert restored == text
+
+
+def test_custom_term_parsed_from_config(tmp_path) -> None:
+    """custom_terms are parsed from the JSON policy config."""
+    path = _write_config(
+        tmp_path,
+        [
+            {
+                "consumer_id": "custom-agent",
+                "custom_terms": ["секрет", "проект-альфа"],
+            }
+        ],
+    )
+    registry = PolicyRegistry(config_path=path)
+    policy = registry.resolve("custom-agent")
+    assert policy.custom_terms == ("секрет", "проект-альфа")
+
+
+def test_custom_term_per_consumer_isolation(tmp_path) -> None:
+    """Custom terms apply only to the configured consumer, not others."""
+    path = _write_config(
+        tmp_path,
+        [
+            {
+                "consumer_id": "custom-agent",
+                "custom_terms": ["секрет"],
+            },
+            {
+                "consumer_id": "plain-agent",
+            },
+        ],
+    )
+    registry = PolicyRegistry(config_path=path)
+    assert registry.resolve("custom-agent").custom_terms == ("секрет",)
+    assert registry.resolve("plain-agent").custom_terms == ()

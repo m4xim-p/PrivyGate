@@ -1,0 +1,24 @@
+{
+  "models": [
+    {
+      "name": "mock-1",
+      "api_base": "http://localhost:8001",
+      "model": "mock-model"
+    },
+    {
+      "name": "mock-2",
+      "api_base": "http://localhost:8002",
+      "model": "mock-model"
+    },
+    {
+      "name": "gpt-4o",
+      "api_base": "https://api.openai.com",
+      "model": "gpt-4o"
+    },
+    {
+      "name": "alfagen",
+      "api_base": "https://alfagen.alfabank.ru/continue-dev",
+      "model": "alfagen-model"
+    }
+  ]
+}

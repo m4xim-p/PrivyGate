@@ -64,6 +64,8 @@ class ConsumerPolicy:
     masking_mode: MaskingMode = "typed_placeholder"
     degradation: DegradationMode = "fail_closed"
     require_card_for_pin: bool = True
+    custom_terms: tuple[str, ...] = ()
+    max_tokens_per_request: int | None = None
 
     @property
     def effective_pii_types(self) -> frozenset[str]:
@@ -133,6 +135,7 @@ class PolicyRegistry:
     def _parse_policy(item: dict) -> ConsumerPolicy:
         enabled_types = item.get("enabled_pii_types")
         excluded_types = item.get("excluded_pii_types")
+        custom_terms = item.get("custom_terms")
         return ConsumerPolicy(
             consumer_id=str(item["consumer_id"]),
             enabled=bool(item.get("enabled", True)),
@@ -147,6 +150,10 @@ class PolicyRegistry:
             masking_mode=item.get("masking_mode", "typed_placeholder"),
             degradation=item.get("degradation", "fail_closed"),
             require_card_for_pin=bool(item.get("require_card_for_pin", True)),
+            custom_terms=(
+                tuple(str(t) for t in custom_terms) if custom_terms is not None else ()
+            ),
+            max_tokens_per_request=item.get("max_tokens_per_request"),
         )
 
     def resolve(self, consumer_id: str | None) -> ConsumerPolicy:

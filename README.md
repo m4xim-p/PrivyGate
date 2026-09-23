@@ -74,6 +74,67 @@ uvicorn app.main:app --port 8000
 Gateway использует порты 8001–8003. Список можно переопределить переменной
 `BACKEND_URLS`, разделяя URL запятыми.
 
+## Подключение реальной LLM (ADR-0008)
+
+`/v1/chat/completions` маршрутизирует запросы по `model` через внутренний конфиг
+моделей (`config/models.json`, путь через `MODELS_CONFIG_PATH`). Конфиг
+перечитывается по TTL (`MODELS_RELOAD_INTERVAL_SECONDS`, по умолчанию 30) без
+редеплоя.
+
+```json
+{
+  "models": [
+    { "name": "mock-1", "api_base": "http://localhost:8001", "model": "mock-model" },
+    { "name": "mock-2", "api_base": "http://localhost:8002", "model": "mock-model" },
+    { "name": "gpt-4o", "api_base": "https://api.openai.com", "model": "gpt-4o" },
+    { "name": "alfagen", "api_base": "https://alfagen.alfabank.ru/continue-dev", "model": "alfagen-model" }
+  ]
+}
+```
+
+Mock-модели (`mock-1`, `mock-2`) указывают на mock backend (`BACKEND_URLS`) —
+удобно для демо сравнения ответов mock и реальной модели. Реальные модели
+требуют `X-Model-API-Key`.
+
+Для реальных моделей с российским корневым сертификатом (например,
+`alfagen.alfabank.ru`) укажите путь к CA-сертификату через `CA_CERTS_PATH`
+(сертификат Минцифры лежит в `certs/russiantrustedca2024.pem`):
+
+```bash
+CA_CERTS_PATH="$PWD/certs/russiantrustedca2024.pem" \
+MODELS_CONFIG_PATH="$PWD/config/models.json" \
+POLICY_CONFIG_PATH="$PWD/config/policy.json" \
+uvicorn app.main:app --port 8000
+```
+
+Клиент передаёт в запросе:
+- `model` — имя модели (должно совпадать с `name` в конфиге);
+- `X-Model-API-Key` — свой API-ключ для модели (прокси использует его как
+  `Authorization: Bearer` при запросе к upstream);
+- `Authorization`/`X-API-Key` — allowlist-ключ (ADR-0004);
+- `X-Consumer-ID` — профиль политики.
+
+```bash
+curl -N http://localhost:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'X-Consumer-ID: crm' \
+  -H 'Authorization: Bearer <allowlist_key>' \
+  -H 'X-Model-API-Key: <client_model_key>' \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Привет"}],
+    "stream": true
+  }'
+```
+
+Неизвестная модель → `404`. Per-consumer квота токенов
+(`max_tokens_per_request` в policy) → `429` при превышении.
+
+Реальная модель должна быть OpenAI-compatible (`/v1/chat/completions`, SSE).
+Gateway парсит SSE, демаскирует `delta.content` и пересобирает SSE, сохраняя
+корректность при пересечении placeholder'ами границ событий. Ключ клиента
+передаётся в запросе, не хранится на прокси.
+
 ## Пример запроса
 
 Опция `-N` отключает buffering вывода curl:
@@ -199,6 +260,7 @@ Per-consumer настройка маскирования через `PolicyRegis
 | `min_confidence` | number | `0.80` | Порог уверенности детектора. |
 | `masking_mode` | string | `typed_placeholder` | Вид маски (`typed_placeholder` / `synthetic` / `format_preserving`). |
 | `degradation` | string | `fail_closed` | Поведение при недоступности детектора (`fail_closed` / `rule_only`). |
+| `custom_terms` | string[] | `[]` | Список терминов для маскирования только для этой системы (ADR-0007). |
 | `api_keys` | string[] | `[]` | Allowlist ключей (заголовок `Authorization: Bearer` или `X-API-Key`). |
 
 #### Типы ПДН (`enabled_pii_types` / `excluded_pii_types`)
@@ -277,6 +339,28 @@ Allowlist применяется только к продуктовому `/v1/c
 `format_preserving` — дополнительные возможности для отдельных consumer profiles
 (критерий 3.7). Во всех режимах mapping хранит original, поэтому demasking
 работает одинаково.
+
+### Custom terms маскирование (`custom_terms`, ADR-0007)
+
+Система-потребитель может указать список терминов/слов, которые должны
+маскироваться **только для этой системы**. Термины матчатся как точные слова
+(word-boundary, case-insensitive) и маскируются в выбранном `masking_mode`.
+
+```json
+{
+  "consumer_id": "custom-terms-agent",
+  "enabled": true,
+  "custom_terms": ["проект-альфа", "секрет"],
+  "allow_demasking": true,
+  "api_keys": ["CHANGE_ME_custom_terms_api_key"]
+}
+```
+
+Термины маскируются как категория `CUSTOM_TERM` (например,
+`__PII_CUSTOM_TERM_1__`). Они **не входят** в 17 обязательных категорий и
+активны только для consumer, у которого заданы. `/process` (default `alfasonar`)
+не маскирует custom terms — фича работает только для product API
+(`/v1/chat/completions`), где policy резолвится по `X-Consumer-ID`.
 
 ### Dev-only просмотр полного запроса к mock backend
 
@@ -372,12 +456,13 @@ threads). Результат — разбивка активного CPU по к
 
 ## Optional local NER
 
-По умолчанию NER выключен, и Gateway использует только rule-based detectors. Для
-локального PERSON detection установите optional dependencies и включите модель:
+NER включён по умолчанию (`NER_ENABLED=true`): Gateway использует rule-based
+detectors + локальный NER для PERSON detection. Для отключения задайте
+`NER_ENABLED=false`. Требуются optional dependencies:
 
 ```bash
 pip install -e '.[ner]'
-NER_ENABLED=true uvicorn app.main:app --port 8000
+uvicorn app.main:app --port 8000
 ```
 
 Модель задаётся через `NER_MODEL`; начальное значение —
