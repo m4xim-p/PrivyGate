@@ -118,3 +118,19 @@ def test_foreign_citizen_passport_uzbekistan_is_masked() -> None:
     assert PIIMasker().mask(text) == (
         "Паспорт гражданина Узбекистана __PII_PASSPORT_1__"
     )
+
+
+def test_military_id_is_masked() -> None:
+    text = "Военный билет АБ 1234567"
+    match = PassportDetector().detect(text)[0]
+
+    assert match.pii_type == "PASSPORT"
+    assert match.value == "АБ 1234567"
+    assert PIIMasker().mask(text) == "Военный билет __PII_PASSPORT_1__"
+
+
+def test_military_id_requires_context() -> None:
+    text = "АБ 1234567"
+
+    assert PassportDetector().detect(text) == []
+    assert PIIMasker().mask(text) == text

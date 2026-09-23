@@ -35,6 +35,10 @@ FOREIGN_PASSPORT_PATTERN = re.compile(
 FOREIGN_ALPHA_PASSPORT_PATTERN = re.compile(
     r"(?<![A-Za-z0-9])(?:[A-Z]{2}[0-9]{7})(?![0-9])"
 )
+# Russian military ID: 2 Cyrillic letters + 7 digits (e.g. АБ 1234567).
+MILITARY_ID_PATTERN = re.compile(
+    r"(?<![А-ЯЁа-яё0-9])(?:[А-ЯЁ]{2}[ \t\-]?(?:номер[ \t]*)?[0-9]{7})(?![0-9])"
+)
 SNILS_PATTERN = re.compile(
     r"(?<![0-9])[0-9]{3}[- ]?[0-9]{3}[- ]?[0-9]{3}[ ]?[0-9]{2}(?![0-9])"
 )
@@ -262,6 +266,8 @@ class PassportDetector:
                 "паспорт гражданина": 0.99,
                 "иностранный паспорт": 0.99,
                 "иностранного паспорта": 0.99,
+                "военный билет": 0.99,
+                "военного билета": 0.99,
             },
         )
 
@@ -292,7 +298,11 @@ class PassportDetector:
     def _foreign_passport_matches(self, text: str) -> list[PIIMatch]:
         """Detect foreign/international passports anchored by context markers."""
         matches: list[PIIMatch] = []
-        for pattern in (FOREIGN_PASSPORT_PATTERN, FOREIGN_ALPHA_PASSPORT_PATTERN):
+        for pattern in (
+            FOREIGN_PASSPORT_PATTERN,
+            FOREIGN_ALPHA_PASSPORT_PATTERN,
+            MILITARY_ID_PATTERN,
+        ):
             for match in pattern.finditer(text):
                 confidence = _context_confidence(
                     text, match.start(), match.end(), self._foreign_context
