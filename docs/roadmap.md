@@ -46,8 +46,9 @@ Roadmap отражает порядок работ, но не заменяет �
 - [x] Fail-closed для `/process` при недоступности детектора (5xx, не raw текст).
 - [x] Degradation policy `rule_only`: при недоступности ML/NER-детектора
   продолжается rule-based маскирование.
-- [x] Offline/pinned NER deployment: HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE задаются
-  в коде (NER_OFFLINE, по умолчанию true).
+- [x] Offline/pinned NER deployment: модель скачивается при сборке образа в
+  `/models/ner`, в runtime грузится с `local_files_only=True` (без сети);
+  HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE задаются в коде (NER_OFFLINE, по умолчанию true).
 - [x] Failure injection tests (fail-closed на недоступном детекторе).
 
 Критерий готовности: per-consumer настройка работает без правки ядра; evaluation
@@ -60,8 +61,9 @@ Roadmap отражает порядок работ, но не заменяет �
 **Почему раньше:** главный риск для допуска и баллов — низкий api recall (FN=112)
 может дать утечку ПДН в LLM (стоп-сигнал финалистов) и снижение по 3.1.
 
-- [ ] Поднять api recall (сейчас 0.536, выше порога 0.50, но низкий): FN в
-  сложных предложениях (PASSPORT_ISSUE_DATE, PERSON, ADDRESS, DATE_OF_BIRTH, INN).
+- [ ] Поднять api recall (rule-based 0.536; с NER 0.578, F1 0.655 — улучшение, но
+  всё ещё ниже целевого): FN в сложных предложениях (PASSPORT_ISSUE_DATE, PERSON,
+  ADDRESS, DATE_OF_BIRTH, INN).
 - [ ] Снизить FP: PHONE (горячая линия/служба поддержки), ADDRESS (организации),
   EMAIL, DRIVING_LICENSE.
 - [ ] Исправление границ context detectors и overlap conflicts.

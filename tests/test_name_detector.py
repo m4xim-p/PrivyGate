@@ -104,14 +104,15 @@ class FakeNERBackend:
         return []
 
 
-def test_ner_precheck_skips_inference_when_name_found() -> None:
+def test_ner_always_runs_inference() -> None:
+    """NER always runs even when precheck found a name."""
     backend = FakeNERBackend()
     detector = NERDetector(backend, precheck=NameDetector())
 
     matches = detector.detect("Меня зовут Иван Петров")
 
     assert matches == []
-    assert backend.calls == 0
+    assert backend.calls == 1
 
 
 def test_ner_precheck_runs_inference_when_no_name_found() -> None:

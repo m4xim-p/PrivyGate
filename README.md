@@ -100,6 +100,10 @@ curl -N http://localhost:8000/v1/chat/completions \
 демаскирование коррелируются по `payload_id`. Полная OpenAPI-спецификация —
 [`process_api.yaml`](process_api.yaml).
 
+По каждому запросу `/process` логируются выявленные типы ПДН и их количество
+(без raw PII): `process_masked payload_id=... pii_count=4 pii_types=EMAIL,PASSPORT,...`.
+Это соответствует ТЗ §4.1 (логирование выявленных типов ПДН по каждому запросу).
+
 ```bash
 # Маскирование (первый запрос с новым payload_id)
 curl -X POST http://localhost:8000/process \
@@ -117,8 +121,9 @@ curl -X POST http://localhost:8000/process \
 Конфигурация `/process` через переменные окружения: `PROCESS_ACTIVE_TTL_SECONDS`,
 `PROCESS_COMPLETED_TTL_SECONDS`, `PROCESS_STORE_MAX_ENTRIES`, `PROCESS_STORE_MAX_BYTES`,
 `PROCESS_WAITER_TIMEOUT_SECONDS`, `PROCESS_MAX_PAYLOAD_BYTES`, `PROCESS_MAX_ESTIMATED_TOKENS`,
-`PROCESS_MASK_WORKERS`, `PROCESS_NER_ENABLED`, `PROCESS_NER_MAX_CONCURRENCY`,
-`PROCESS_DETECTION_PROFILE`.
+`PROCESS_MASK_WORKERS`, `PROCESS_DETECTION_PROFILE`. NER-переменные (`NER_ENABLED`,
+`NER_MODEL`, `NER_MODEL_REVISION`, `NER_MAX_CONCURRENCY` и др.) описаны в разделе
+«Optional local NER».
 
 При превышении лимита `/process` возвращает `413` с пояснением в стиле DeepSeek:
 `payload too large: maximum context length is N tokens, but you requested M tokens`.
@@ -199,6 +204,34 @@ Per-consumer настройка маскирования через `PolicyRegis
 `/process` (AlfaSonar) всегда использует default profile `alfasonar` без auth.
 Allowlist применяется только к продуктовому `/v1/chat/completions`.
 
+### Типы маскирования (`masking_mode`)
+
+Каждая система-потребитель может выбрать вид маскирования через поле
+`masking_mode`. Доступны три режима:
+
+| Режим | Описание | Пример для `Иван Иванов, email ivan@example.com` |
+|---|---|---|
+| `typed_placeholder` (по умолчанию) | Замена на типизированный placeholder | `__PII_PERSON_1__, email __PII_EMAIL_1__` |
+| `synthetic` | Замена на фиксированные синтетические данные | `Иванов Иван Иванович_1, email user@example.com_1` |
+| `format_preserving` | Сохранение длины и разделителей, символы → `*` | `**** ******, email ****************` |
+
+Пример конфига с синтетическим маскированием:
+
+```json
+{
+  "consumer_id": "synthetic-agent",
+  "enabled": true,
+  "masking_mode": "synthetic",
+  "allow_demasking": true,
+  "api_keys": ["CHANGE_ME_synthetic_api_key"]
+}
+```
+
+`typed_placeholder` — безопасный default для AlfaSonar (ADR-0003). `synthetic` и
+`format_preserving` — дополнительные возможности для отдельных consumer profiles
+(критерий 3.7). Во всех режимах mapping хранит original, поэтому demasking
+работает одинаково.
+
 ### Dev-only просмотр полного запроса к mock backend
 
 Для ручной проверки masking на синтетических данных можно явно включить полный
@@ -265,6 +298,30 @@ tokenizer windows. В лог попадают только latency, status и к
 ```bash
 NER_ENABLED=true docker compose up --build
 ```
+
+NER-модель разбивает широкие PERSON-span'ы по союзам («и», «а»), чтобы не
+пропускать имена в смешанных предложениях (например, «Иванов Иван и Полищук
+Максим» → два отдельных имени).
+
+### Кеширование NER-модели в docker-образе
+
+При `NER_ENABLED=true` модель скачивается **при сборке образа** в `/models/ner`
+(через `snapshot_download`). В runtime модель загружается из `/models/ner` с
+`local_files_only=True` — сетевая загрузка запрещена (`NER_OFFLINE=true` по
+умолчанию). Если модель отсутствует или повреждена, запуск при `NER_ENABLED=true`
+завершается ошибкой.
+
+```bash
+# Сборка образа с предзагруженной моделью
+docker build --build-arg INSTALL_NER=true -t privygate .
+
+# Запуск (модель грузится из /models/ner, без сети)
+NER_ENABLED=true docker compose up --build
+```
+
+`NER_MODEL_PATH` (по умолчанию `/models/ner`) задаёт каталог локальной модели.
+`NER_OFFLINE` (по умолчанию `true`) запрещает скачивание из Hugging Face Hub в
+runtime.
 
 ## Ограничения MVP
 

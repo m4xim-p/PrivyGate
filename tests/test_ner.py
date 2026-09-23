@@ -52,8 +52,12 @@ def test_transformers_backend_pins_revision(monkeypatch) -> None:
     TransformersNERBackend.from_pretrained("example/model", revision="commit-sha")
 
     assert calls == [
-        ("tokenizer", "example/model", {"revision": "commit-sha", "use_fast": True}),
-        ("model", "example/model", {"revision": "commit-sha"}),
+        (
+            "tokenizer",
+            "example/model",
+            {"revision": "commit-sha", "use_fast": True, "local_files_only": True},
+        ),
+        ("model", "example/model", {"revision": "commit-sha", "local_files_only": True}),
     ]
 
 
@@ -217,5 +221,31 @@ def test_suspicious_person_span_splits_at_bio_restart() -> None:
     assert [match.value for match in matches] == [
         "Иван Петров Позвони",
         "Ивану Петрову",
+    ]
+    assert all(text[match.start : match.end] == match.value for match in matches)
+
+
+def test_split_at_conjunction_separates_names() -> None:
+    """A broad PER run with a conjunction splits into separate names."""
+    text = "Иванов Иван и Полищук Максим"
+    words_and_labels = [
+        ("Иванов", "B-PER"),
+        ("Иван", "I-PER"),
+        ("и", "I-PER"),
+        ("Полищук", "I-PER"),
+        ("Максим", "I-PER"),
+    ]
+    predictions = []
+    search_from = 0
+    for word, label in words_and_labels:
+        start = text.index(word, search_from)
+        predictions.append(NERTokenPrediction(label, start, start + len(word), 0.95))
+        search_from = start + len(word)
+
+    matches = NERDetector(FakeNERBackend(predictions)).detect(text)
+
+    assert [match.value for match in matches] == [
+        "Иванов Иван",
+        "Полищук Максим",
     ]
     assert all(text[match.start : match.end] == match.value for match in matches)
