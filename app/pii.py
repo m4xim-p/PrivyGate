@@ -640,22 +640,46 @@ class CardDetector:
 
     def __init__(self, confidence: float = 1.0) -> None:
         self._confidence = confidence
+        self._context = ContextConfig(
+            positive_context_weights={
+                "карта": 0.45,
+                "карты": 0.45,
+                "номер карты": 0.45,
+                "card": 0.45,
+            },
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
         matches: list[PIIMatch] = []
         for match in CARD_PATTERN.finditer(text):
             digits = _digits(match.group(0))
-            if not _passes_luhn(digits):
-                continue
-            matches.append(
-                PIIMatch(
-                    pii_type=self.pii_type,
-                    value=match.group(0),
-                    start=match.start(),
-                    end=match.end(),
-                    confidence=self._confidence,
+            if _passes_luhn(digits):
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=self._confidence,
+                    )
                 )
+                continue
+            # Non-Luhn card in explicit "карта" context (recall-first).
+            if _is_sequential_digits(digits):
+                continue
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self._context
             )
+            if confidence >= 0.80:
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=confidence,
+                    )
+                )
         return matches
 
 
@@ -677,6 +701,16 @@ def _passes_luhn(digits: str) -> bool:
                 value -= 9
         checksum += value
     return checksum % 10 == 0
+
+
+def _is_sequential_digits(digits: str) -> bool:
+    """Return True when digits are sequential (e.g. 1234567890123456)."""
+    if len(digits) < 2:
+        return False
+    return all(
+        int(digits[i + 1]) == (int(digits[i]) + 1) % 10
+        for i in range(len(digits) - 1)
+    )
 
 
 # ---------------------------------------------------------------------------

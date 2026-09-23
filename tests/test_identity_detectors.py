@@ -148,6 +148,13 @@ def test_valid_card_is_masked() -> None:
 def test_card_with_invalid_luhn_checksum_is_not_detected() -> None:
     text = "Карта 4111 1111 1111 1112"
 
+    # Non-Luhn card in explicit "Карта" context is masked (recall-first).
+    assert PIIMasker().mask(text) == "Карта __PII_CARD_1__"
+
+
+def test_card_with_invalid_luhn_without_context_is_not_detected() -> None:
+    text = "Номер заказа 4111 1111 1111 1112"
+
     assert CardDetector().detect(text) == []
     assert PIIMasker().mask(text) == text
 
