@@ -104,6 +104,7 @@ async def lifespan(app: FastAPI):
         model_name = os.getenv("NER_MODEL", "LLAIMlegal/ru-legal-ner")
         model_revision = os.getenv("NER_MODEL_REVISION", DEFAULT_NER_MODEL_REVISION)
         device = os.getenv("NER_DEVICE", "cpu")
+        model_path = os.getenv("NER_MODEL_PATH")
         started_at = time.perf_counter()
         try:
             ner_backend = await asyncio.to_thread(
@@ -114,11 +115,13 @@ async def lifespan(app: FastAPI):
                 max_length=int(os.getenv("NER_MAX_LENGTH", "512")),
                 stride=int(os.getenv("NER_STRIDE", "64")),
                 offline=_env_enabled("NER_OFFLINE", default=True),
+                model_path=model_path,
             )
         except Exception as exc:
             logger.error(
-                "ner_model_initialization_failed model=%s error_type=%s",
+                "ner_model_initialization_failed model=%s model_path=%s error_type=%s",
                 model_name,
+                model_path or "default",
                 type(exc).__name__,
             )
             raise

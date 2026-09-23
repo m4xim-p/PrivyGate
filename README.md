@@ -294,6 +294,26 @@ tokenizer windows. В лог попадают только latency, status и к
 NER_ENABLED=true docker compose up --build
 ```
 
+### Кеширование NER-модели в docker-образе
+
+При `NER_ENABLED=true` модель скачивается **при сборке образа** в `/models/ner`
+(через `snapshot_download`). В runtime модель загружается из `/models/ner` с
+`local_files_only=True` — сетевая загрузка запрещена (`NER_OFFLINE=true` по
+умолчанию). Если модель отсутствует или повреждена, запуск при `NER_ENABLED=true`
+завершается ошибкой.
+
+```bash
+# Сборка образа с предзагруженной моделью
+docker build --build-arg INSTALL_NER=true -t privygate .
+
+# Запуск (модель грузится из /models/ner, без сети)
+NER_ENABLED=true docker compose up --build
+```
+
+`NER_MODEL_PATH` (по умолчанию `/models/ner`) задаёт каталог локальной модели.
+`NER_OFFLINE` (по умолчанию `true`) запрещает скачивание из Hugging Face Hub в
+runtime.
+
 ## Ограничения MVP
 
 - Rule-based detectors поддерживают ограниченный набор форматов. СНИЛС и ИНН

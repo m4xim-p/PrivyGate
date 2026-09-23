@@ -46,8 +46,9 @@ Roadmap отражает порядок работ, но не заменяет �
 - [x] Fail-closed для `/process` при недоступности детектора (5xx, не raw текст).
 - [x] Degradation policy `rule_only`: при недоступности ML/NER-детектора
   продолжается rule-based маскирование.
-- [x] Offline/pinned NER deployment: HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE задаются
-  в коде (NER_OFFLINE, по умолчанию true).
+- [x] Offline/pinned NER deployment: модель скачивается при сборке образа в
+  `/models/ner`, в runtime грузится с `local_files_only=True` (без сети);
+  HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE задаются в коде (NER_OFFLINE, по умолчанию true).
 - [x] Failure injection tests (fail-closed на недоступном детекторе).
 
 Критерий готовности: per-consumer настройка работает без правки ядра; evaluation

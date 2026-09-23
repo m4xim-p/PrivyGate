@@ -176,6 +176,7 @@ class TransformersNERBackend:
         max_length: int = 512,
         stride: int = 64,
         offline: bool = True,
+        model_path: str | None = None,
     ) -> "TransformersNERBackend":
         try:
             import torch
@@ -191,14 +192,22 @@ class TransformersNERBackend:
             os.environ.setdefault("HF_HUB_OFFLINE", "1")
             os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
+        # Prefer a pre-downloaded local model directory (e.g. /models/ner baked
+        # into the image at build time). local_files_only=True forbids any
+        # network download at runtime.
+        source = model_path or model_name
+        local_only = offline or model_path is not None
+
         tokenizer = AutoTokenizer.from_pretrained(
-            model_name,
+            source,
             revision=revision,
             use_fast=True,
+            local_files_only=local_only,
         )
         model = AutoModelForTokenClassification.from_pretrained(
-            model_name,
+            source,
             revision=revision,
+            local_files_only=local_only,
         )
         return cls(
             tokenizer,
