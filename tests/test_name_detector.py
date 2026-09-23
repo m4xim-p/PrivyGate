@@ -104,8 +104,8 @@ class FakeNERBackend:
         return []
 
 
-def test_ner_hybrid_always_runs_inference() -> None:
-    """hybrid (default): NER always runs even when precheck found a name."""
+def test_ner_always_runs_inference() -> None:
+    """NER always runs even when precheck found a name."""
     backend = FakeNERBackend()
     detector = NERDetector(backend, precheck=NameDetector())
 

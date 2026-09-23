@@ -130,15 +130,13 @@ async def lifespan(app: FastAPI):
                 ner_backend,
                 min_confidence=float(os.getenv("NER_MIN_CONFIDENCE", "0.80")),
                 precheck=NameDetector(),
-                mode=os.getenv("NER_MODE", "hybrid"),
             )
         )
         logger.info(
-            "ner_model_initialized model=%s latency_ms=%.1f device=%s mode=%s",
+            "ner_model_initialized model=%s latency_ms=%.1f device=%s",
             model_name,
             (time.perf_counter() - started_at) * 1000,
             device,
-            os.getenv("NER_MODE", "hybrid"),
         )
     app.state.pii_detectors = tuple(detectors)
     app.state.ml_detectors = tuple(ml_detectors)

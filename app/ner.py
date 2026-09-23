@@ -8,13 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.pii import (
-    NAME_CANDIDATE_PATTERN,
-    NameDetector,
-    PIIDetector,
-    PIIMatch,
-    is_known_person,
-)
+from app.pii import PIIDetector, PIIMatch, is_known_person
 
 logger = logging.getLogger("privygate.ner")
 
@@ -35,30 +29,8 @@ class NERBackend(Protocol):
     def predict(self, text: str) -> Sequence[NERTokenPrediction]: ...
 
 
-def _has_uncovered_candidates(text: str, name_detector: PIIDetector) -> bool:
-    """True when a capitalized run looks like a name but rule-based missed it.
-
-    For each candidate run of capitalized words, if rule-based NameDetector
-    found no full name inside but the run has >=2 words, treat it as an
-    uncovered candidate that NER should inspect.
-    """
-    for candidate in NAME_CANDIDATE_PATTERN.finditer(text):
-        run = candidate.group(0)
-        tokens = run.split()
-        if len(tokens) < 2:
-            continue
-        if not name_detector.detect(run):
-            return True
-    return False
-
-
 class NERDetector:
-    """Convert token-level PER/PERSON predictions to PIIMatch spans.
-
-    ``mode`` controls when NER inference runs (temporary, for comparison):
-    - ``hybrid`` (default): NER always runs.
-    - ``hybrid_c``: NER runs only when there are uncovered name candidates.
-    """
+    """Convert token-level PER/PERSON predictions to PIIMatch spans."""
 
     pii_type = "PERSON"
 
@@ -69,13 +41,11 @@ class NERDetector:
         min_confidence: float = 0.80,
         accepted_labels: Sequence[str] = ("PER", "PERSON"),
         precheck: PIIDetector | None = None,
-        mode: str = "hybrid",
     ) -> None:
         self._backend = backend
         self._min_confidence = min_confidence
         self._accepted_labels = frozenset(label.upper() for label in accepted_labels)
         self._precheck = precheck
-        self._mode = mode
 
     def detect(self, text: str) -> list[PIIMatch]:
         started_at = time.perf_counter()
@@ -85,12 +55,6 @@ class NERDetector:
         suspicious_person_span = False
         precheck_skipped = False
         try:
-            if self._mode == "hybrid_c":
-                # Run NER only when there are uncovered name candidates.
-                precheck = self._precheck or NameDetector()
-                if not _has_uncovered_candidates(text, precheck):
-                    precheck_skipped = True
-                    return matches
             predictions = self._backend.predict(text)
             matches, suspicious_person_span = self._person_matches(text, predictions)
             return matches
@@ -101,14 +65,13 @@ class NERDetector:
             logger.info(
                 "ner_inference_finished status=%s latency_ms=%.1f "
                 "token_predictions=%d person_entities=%d "
-                "suspicious_person_span=%s precheck_skipped=%s mode=%s",
+                "suspicious_person_span=%s precheck_skipped=%s",
                 status,
                 (time.perf_counter() - started_at) * 1000,
                 len(predictions),
                 len(matches),
                 str(suspicious_person_span).lower(),
                 str(precheck_skipped).lower(),
-                self._mode,
             )
 
     def _person_matches(
