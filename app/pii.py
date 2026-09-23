@@ -774,7 +774,7 @@ def _is_abbreviation_continuation(text: str, period_index: int) -> bool:
 
 
 def _is_date_start(text: str, index: int) -> bool:
-    """Return True when a date (ISO or numeric) starts at ``index``."""
+    """Return True when a date (ISO, numeric, or textual) starts at ``index``."""
     if index + 9 >= len(text):
         return False
     # ISO YYYY-MM-DD
@@ -795,12 +795,32 @@ def _is_date_start(text: str, index: int) -> bool:
     ):
         return True
     # Slash DD/MM/YYYY
-    return (
+    if (
         text[index : index + 2].isdigit()
         and text[index + 2] == "/"
         and text[index + 3 : index + 5].isdigit()
         and text[index + 5] == "/"
-    )
+    ):
+        return True
+    # Textual date: "15 сентября 2021 г."
+    return _is_textual_date_start(text, index)
+
+
+def _is_textual_date_start(text: str, index: int) -> bool:
+    """Return True when a textual date (day + month word) starts at ``index``."""
+    if index + 2 >= len(text):
+        return False
+    if not text[index : index + 2].isdigit():
+        return False
+    # Skip day digits, then expect a month word.
+    j = index
+    while j < len(text) and text[j].isdigit():
+        j += 1
+    if j >= len(text) or text[j] != " ":
+        return False
+    j += 1
+    # Match a Russian month word.
+    return any(text.startswith(month, j) for month in RUSSIAN_MONTHS)
 
 
 def _is_sentence_end(text: str, period_index: int) -> bool:
