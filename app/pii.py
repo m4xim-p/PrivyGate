@@ -1297,6 +1297,27 @@ class NameDetector:
                 "владелец": 0.40,
             },
         )
+        # Markers that strongly indicate a full name follows, allowing
+        # recognition of names not present in the offline dataset.
+        self._name_context = ContextConfig(
+            positive_context_weights={
+                "фио": 0.99,
+                "зовут": 0.99,
+                "клиент": 0.90,
+                "клиента": 0.90,
+                "профиль": 0.90,
+                "профиля": 0.90,
+                "предприниматель": 0.90,
+                "предпринимателя": 0.90,
+                "обращение": 0.85,
+                "обращения": 0.85,
+                "проверка благонадёжности": 0.90,
+                "проверка благонадежности": 0.90,
+                "актуализировать профиль": 0.90,
+                "история обращения": 0.85,
+                "заявка на проверку": 0.90,
+            },
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
         matches: list[PIIMatch] = []
@@ -1326,6 +1347,7 @@ class NameDetector:
                     continue
                 break
         matches.extend(self._latin_name_matches(text))
+        matches.extend(self._context_name_matches(text))
         return matches
 
     def _latin_name_matches(self, text: str) -> list[PIIMatch]:
@@ -1364,6 +1386,48 @@ class NameDetector:
                     )
                 )
             return matches
+
+    def _context_name_matches(self, text: str) -> list[PIIMatch]:
+        """Detect full names after strong context markers (ФИО:, зовут, клиент).
+
+        Names not present in the offline dataset are still recognized when a
+        strong marker indicates a full name follows. Supports lowercase names
+        after "клиент" (e.g. "клиент тулаев ибрагим идрисович").
+        """
+        matches: list[PIIMatch] = []
+        normalized = text.casefold()
+        for marker in self._name_context.positive_context_weights:
+            for found in re.finditer(re.escape(marker), normalized):
+                start = found.end()
+                while start < len(text) and text[start] in " \t:;—–-":
+                    start += 1
+                # Capture 2-3 capitalized words (or lowercase after "клиент").
+                if marker in ("клиент", "клиента"):
+                    name_re = re.compile(
+                        r"[А-ЯЁа-яё]+(?:-[А-ЯЁа-яё]+)?"
+                        r"(?:\s+[А-ЯЁа-яё]+(?:-[А-ЯЁа-яё]+)?){1,2}"
+                    )
+                else:
+                    name_re = re.compile(
+                        r"[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?"
+                        r"(?:\s+[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?){1,2}"
+                    )
+                m = name_re.match(text, start)
+                if not m:
+                    continue
+                value = m.group(0)
+                if is_known_person(value):
+                    continue
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=value,
+                        start=m.start(),
+                        end=m.end(),
+                        confidence=self._name_context.positive_context_weights[marker],
+                    )
+                )
+        return matches
 
     @staticmethod
     def _is_full_name(tokens: Sequence[str]) -> bool:
