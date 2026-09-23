@@ -1070,7 +1070,7 @@ class DateOfBirthDetector:
                     confidence=confidence,
                 )
             )
-        # Numeric day + month word: "19 мая 1963 г."
+# Numeric day + month word: "19 мая 1963 г."
         for match in NUMERIC_DAY_MONTH_PATTERN.finditer(text):
             num_day = int(match.group("day"))
             num_month = RUSSIAN_MONTHS.get(match.group("month").casefold())

@@ -132,7 +132,7 @@ def test_inn_with_invalid_checksum_is_not_detected() -> None:
     # Non-valid-checksum INN in explicit "ИНН" context is masked (recall-first).
     for inn in ("7707083894", "500100732258"):
         text = f"ИНН {inn}"
-        assert PIIMasker().mask(text) == f"ИНН __PII_INN_1__"
+        assert PIIMasker().mask(text) == "ИНН __PII_INN_1__"
 
 
 def test_inn_with_invalid_checksum_without_context_is_not_detected() -> None:
