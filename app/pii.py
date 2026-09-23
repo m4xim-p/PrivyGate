@@ -270,6 +270,17 @@ class PassportDetector:
                 "военного билета": 0.99,
             },
         )
+        # Alpha-numeric foreign passports (AB1234567) need a more specific
+        # marker than a bare "паспорт"/"passport" to avoid false positives
+        # (e.g. "Passport AB1234567" as a product code).
+        self._foreign_alpha_context = ContextConfig(
+            positive_context_weights={
+                "паспорт иностранного гражданина": 0.99,
+                "паспорт гражданина": 0.99,
+                "иностранный паспорт": 0.99,
+                "иностранного паспорта": 0.99,
+            },
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
         matches: list[PIIMatch] = []
@@ -303,9 +314,14 @@ class PassportDetector:
             FOREIGN_ALPHA_PASSPORT_PATTERN,
             MILITARY_ID_PATTERN,
         ):
+            context = (
+                self._foreign_alpha_context
+                if pattern is FOREIGN_ALPHA_PASSPORT_PATTERN
+                else self._foreign_context
+            )
             for match in pattern.finditer(text):
                 confidence = _context_confidence(
-                    text, match.start(), match.end(), self._foreign_context
+                    text, match.start(), match.end(), context
                 )
                 if confidence < 0.80:
                     continue
