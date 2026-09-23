@@ -1546,15 +1546,18 @@ class DrivingLicenseDetector:
 
     def __init__(self, config: ContextConfig | None = None) -> None:
         self.config = config if config is not None else ContextConfig(
+            context_window_chars=120,
+            distance_decay_power=0.5,
             positive_context_weights={
-                "водительское удостоверение": 0.40,
-                "водительского удостоверения": 0.40,
-                "водительские права": 0.40,
-                "водительских прав": 0.40,
-                "права": 0.30,
-                "прав": 0.30,
-                "удостоверение": 0.30,
-                "удостоверения": 0.30,
+                "водительское удостоверение": 0.45,
+                "водительского удостоверения": 0.45,
+                "водительские права": 0.45,
+                "водительских прав": 0.45,
+                "права": 0.35,
+                "прав": 0.35,
+                "удостоверение": 0.35,
+                "удостоверения": 0.35,
+                "серия и номер": 0.40,
             },
         )
 
@@ -1674,6 +1677,14 @@ class PinCodeDetector:
                 "pin": 0.45,
             },
         )
+        self._card_context = ContextConfig(
+            positive_context_weights={
+                "карта": 0.45,
+                "карты": 0.45,
+                "номер карты": 0.45,
+                "card": 0.45,
+            },
+        )
         self._require_card = require_card
 
     def detect(self, text: str) -> list[PIIMatch]:
@@ -1682,6 +1693,15 @@ class PinCodeDetector:
             _passes_luhn(_digits(match.group(0)))
             for match in CARD_PATTERN.finditer(text)
         )
+        # Also treat a non-Luhn card in explicit "карта" context as a card.
+        if not has_card:
+            has_card = any(
+                _context_confidence(
+                    text, match.start(), match.end(), self._card_context
+                )
+                >= 0.80
+                for match in CARD_PATTERN.finditer(text)
+            )
         for match in PIN_PATTERN.finditer(text):
             confidence = _context_confidence(
                 text, match.start(), match.end(), self.config
