@@ -84,10 +84,27 @@ Gateway использует порты 8001–8003. Список можно п�
 ```json
 {
   "models": [
+    { "name": "mock-1", "api_base": "http://localhost:8001", "model": "mock-model" },
+    { "name": "mock-2", "api_base": "http://localhost:8002", "model": "mock-model" },
     { "name": "gpt-4o", "api_base": "https://api.openai.com", "model": "gpt-4o" },
     { "name": "alfagen", "api_base": "https://alfagen.alfabank.ru/continue-dev", "model": "alfagen-model" }
   ]
 }
+```
+
+Mock-модели (`mock-1`, `mock-2`) указывают на mock backend (`BACKEND_URLS`) —
+удобно для демо сравнения ответов mock и реальной модели. Реальные модели
+требуют `X-Model-API-Key`.
+
+Для реальных моделей с российским корневым сертификатом (например,
+`alfagen.alfabank.ru`) укажите путь к CA-сертификату через `CA_CERTS_PATH`
+(сертификат Минцифры лежит в `certs/russiantrustedca2024.pem`):
+
+```bash
+CA_CERTS_PATH="$PWD/certs/russiantrustedca2024.pem" \
+MODELS_CONFIG_PATH="$PWD/config/models.json" \
+POLICY_CONFIG_PATH="$PWD/config/policy.json" \
+uvicorn app.main:app --port 8000
 ```
 
 Клиент передаёт в запросе:

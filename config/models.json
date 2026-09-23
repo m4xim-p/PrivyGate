@@ -11,14 +11,9 @@
       "model": "mock-model"
     },
     {
-      "name": "gpt-4o",
-      "api_base": "https://api.openai.com",
-      "model": "gpt-4o"
-    },
-    {
-      "name": "alfagen",
+      "name": "deepseek",
       "api_base": "https://alfagen.alfabank.ru/continue-dev",
-      "model": "alfagen-model"
+      "model": "deepseek-ai/DeepSeek-V4-Flash-0731"
     }
   ]
 }
