@@ -56,6 +56,12 @@
       "custom_terms": ["проект-альфа", "секрет"],
       "allow_demasking": true,
       "api_keys": ["CHANGE_ME_custom_terms_api_key"]
+    },
+    {
+      "consumer_id": "alfagen",
+      "enabled": true,
+      "allow_demasking": true,
+      "api_keys": ["CHANGE_ME_alfagen_api_key"]
     }
   ]
 }

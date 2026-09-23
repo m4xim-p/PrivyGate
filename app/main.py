@@ -7,6 +7,7 @@ import time
 import uuid
 from collections.abc import Sequence
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -62,6 +63,21 @@ def _env_enabled(name: str, default: bool = False) -> bool:
     return value.casefold() in {"1", "true", "yes", "on"}
 
 
+def _ca_certs_path() -> str | None:
+    """Resolve the CA bundle path for upstream TLS.
+
+    Uses ``CA_CERTS_PATH`` if set; otherwise falls back to the bundled Russian
+    trusted CA certificate (``certs/russiantrustedca2024.pem``) relative to the
+    project root, if present. Returns ``None`` to use system CA store.
+    """
+    explicit = os.getenv("CA_CERTS_PATH")
+    if explicit:
+        return explicit
+    project_root = Path(__file__).resolve().parents[1]
+    bundled = project_root / "certs" / "russiantrustedca2024.pem"
+    return str(bundled) if bundled.is_file() else None
+
+
 def _extract_api_key(request: Request) -> str | None:
     """Extract the API key from Authorization Bearer or X-API-Key header."""
     auth = request.headers.get("Authorization")
@@ -95,7 +111,7 @@ def _mask_payload(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     timeout = httpx.Timeout(connect=5.0, read=None, write=10.0, pool=5.0)
-    ca_certs = os.getenv("CA_CERTS_PATH")
+    ca_certs = _ca_certs_path()
     app.state.http_client = httpx.AsyncClient(
         timeout=timeout,
         limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100),

@@ -10,7 +10,8 @@
 Перед разработкой прочитайте [AGENTS.md](AGENTS.md). Канонические документы:
 
 - [требования и матрица покрытия](docs/requirements.md);
-- [архитектура](docs/architecture.md);
+- [архитектура](docs/architecture.md) (включая схему для жюри);
+- [оценка готовности](docs/readiness.md);
 - [контракт автоматической проверки](docs/evaluation-contract.md);
 - [обязательная security policy](SECURITY.md) и
   [подробная модель угроз](docs/security.md);
@@ -49,30 +50,51 @@ Mapping placeholder → исходное значение хранится то�
 Требуется Docker с Compose:
 
 ```bash
+# 1. Настроить политики потребителей (скопировать шаблон и заполнить API-ключи)
+cp config/policy.example.json config/policy.json
+
+# 2. Запустить стек
 docker compose up --build
 ```
 
 Gateway доступен на `http://localhost:8000`. Backend-сервисы доступны только во
-внутренней сети Compose.
+внутренней сети Compose. Для `/process` (автопроверка) API-ключи не нужны.
 
-## Локальный запуск
+## Локальный запуск через Python venv
 
-Требуется Python 3.12:
+Требуется Python 3.12. Запуск без Docker — четыре процесса в отдельных терминалах:
 
 ```bash
+# 1. Создать и активировать venv
 python3.12 -m venv .venv
 source .venv/bin/activate
+
+# 2. Установить зависимости
 pip install -e '.[dev]'
 
+# 3. Настроить политики потребителей
+cp config/policy.example.json config/policy.json
+```
+
+Затем в четырёх отдельных терминалах (внутри активированного venv):
+
+```bash
+# Терминал 1 — mock backend 1
 BACKEND_ID=backend-1 uvicorn mock_llm.main:app --port 8001
+
+# Терминал 2 — mock backend 2
 BACKEND_ID=backend-2 uvicorn mock_llm.main:app --port 8002
+
+# Терминал 3 — mock backend 3
 BACKEND_ID=backend-3 uvicorn mock_llm.main:app --port 8003
+
+# Терминал 4 — Gateway
 uvicorn app.main:app --port 8000
 ```
 
-Последние четыре команды нужно запустить в отдельных терминалах. По умолчанию
-Gateway использует порты 8001–8003. Список можно переопределить переменной
-`BACKEND_URLS`, разделяя URL запятыми.
+По умолчанию Gateway использует порты 8001–8003. Список можно переопределить
+переменной `BACKEND_URLS`, разделяя URL запятыми. Проверка здоровья:
+`curl http://localhost:8000/health`.
 
 ## Подключение реальной LLM (ADR-0008)
 
@@ -86,19 +108,20 @@ Gateway использует порты 8001–8003. Список можно п�
   "models": [
     { "name": "mock-1", "api_base": "http://localhost:8001", "model": "mock-model" },
     { "name": "mock-2", "api_base": "http://localhost:8002", "model": "mock-model" },
-    { "name": "gpt-4o", "api_base": "https://api.openai.com", "model": "gpt-4o" },
-    { "name": "alfagen", "api_base": "https://alfagen.alfabank.ru/continue-dev", "model": "alfagen-model" }
+    { "name": "mock-3", "api_base": "http://localhost:8003", "model": "mock-model" },
+    { "name": "deepseek", "api_base": "https://alfagen.alfabank.ru/continue-dev", "model": "deepseek-ai/DeepSeek-V4-Flash-0731" }
   ]
 }
 ```
 
-Mock-модели (`mock-1`, `mock-2`) указывают на mock backend (`BACKEND_URLS`) —
+Mock-модели (`mock-1`, `mock-2`, `mock-3`) указывают на mock backend (`BACKEND_URLS`) —
 удобно для демо сравнения ответов mock и реальной модели. Реальные модели
 требуют `X-Model-API-Key`.
 
 Для реальных моделей с российским корневым сертификатом (например,
-`alfagen.alfabank.ru`) укажите путь к CA-сертификату через `CA_CERTS_PATH`
-(сертификат Минцифры лежит в `certs/russiantrustedca2024.pem`):
+`alfagen.alfabank.ru`) прокси автоматически использует сертификат Минцифры из
+`certs/russiantrustedca2024.pem` (bundled в образ). Явно переопределить путь можно
+через `CA_CERTS_PATH`:
 
 ```bash
 CA_CERTS_PATH="$PWD/certs/russiantrustedca2024.pem" \
@@ -126,6 +149,37 @@ curl -N http://localhost:8000/v1/chat/completions \
     "stream": true
   }'
 ```
+
+### Запрос сразу в альфаген с маскированием
+
+Для записи в альфаген через прокси используйте модель `deepseek` (из
+`config/models.json`) и consumer-профиль `alfagen` (из `config/policy.json`).
+Прокси маскирует PII в запросе, отправляет в альфаген, демаскирует ответ и
+возвращает клиенту:
+
+```bash
+curl -N http://localhost:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'X-Consumer-ID: alfagen' \
+  -H 'Authorization: Bearer <allowlist_key>' \
+  -H 'X-Model-API-Key: <alfagen_api_key>' \
+  -d '{
+    "model": "deepseek",
+    "messages": [{"role": "user", "content": "Позвони клиенту Иванову Ивану на +7 999 123-45-67"}],
+    "stream": true
+  }'
+```
+
+- `X-Consumer-ID: alfagen` — профиль с маскированием всех типов PII и
+  `allow_demasking: true`;
+- `X-Model-API-Key` — ваш API-ключ для альфаген (прокси использует его как
+  `Authorization: Bearer` к upstream, не хранит);
+- `model: deepseek` — имя модели из `config/models.json`, указывает на
+  `https://alfagen.alfabank.ru/continue-dev`.
+
+Российский корневой сертификат для альфаген подхватывается автоматически из
+`certs/russiantrustedca2024.pem` (bundled в образ); переопределить можно через
+`CA_CERTS_PATH` (см. выше).
 
 Неизвестная модель → `404`. Per-consumer квота токенов
 (`max_tokens_per_request` в policy) → `429` при превышении.
@@ -177,6 +231,28 @@ curl -X POST http://localhost:8000/process \
   -H 'Content-Type: application/json' \
   -d '{"payload":"__PII_PERSON_1__, паспорт __PII_PASSPORT_1__","payload_id":"demo-1"}'
 # -> {"result":"Иванов Иван Иванович, паспорт 45 10 123456"}
+```
+
+### Ловушки (не ПДН — не маскируется)
+
+Исторические личности и адреса организаций не являются данными клиента и не
+маскируются (критерий 3.3 и критерий финалистов «Доверие»):
+
+```bash
+curl -X POST http://localhost:8000/process \
+  -H 'Content-Type: application/json' \
+  -d '{"payload":"Поэт Александр Пушкин родился в 1799 году. Отделение банка на ул. Тверская, 1.","payload_id":"demo-2"}'
+# Историческая личность и адрес организации НЕ маскируются (не данные клиента).
+```
+
+### Логи типов ПДН по запросу
+
+По каждому запросу `/process` логируются выявленные типы ПДН и их количество
+(без raw PII). Посмотреть логи:
+
+```bash
+docker compose logs gateway | grep process_masked
+# -> process_masked payload_id=... pii_count=3 pii_types=PERSON,PASSPORT,PHONE
 ```
 
 Конфигурация `/process` через переменные окружения: `PROCESS_ACTIVE_TTL_SECONDS`,
@@ -270,6 +346,21 @@ Per-consumer настройка маскирования через `PolicyRegis
 `DRIVING_LICENSE`, `ADDRESS`, `EMAIL`, `PHONE`, `INN`, `CARD`, `CVV`, `PIN`,
 `CARD_HOLDER`.
 
+Дополнительно реализованы детекторы `KPP`, `OGRN` и `SNILS` (с checksum), но они
+**не входят** в 17 обязательных категорий ТЗ и **не маскируются по умолчанию**
+(в `/process` с default profile `alfasonar`). Чтобы включить их для конкретной
+системы, укажите их в `enabled_pii_types` профиля:
+
+```json
+{
+  "consumer_id": "legal-agent",
+  "enabled": true,
+  "enabled_pii_types": ["KPP", "OGRN", "SNILS"],
+  "allow_demasking": true,
+  "api_keys": ["CHANGE_ME_legal_api_key"]
+}
+```
+
 #### Примеры сценариев
 
 **1. Маскировать только паспорт** (`enabled_pii_types`):
@@ -282,6 +373,18 @@ Per-consumer настройка маскирования через `PolicyRegis
   "allow_demasking": true,
   "api_keys": ["CHANGE_ME_passport_api_key"]
 }
+```
+
+Запрос с этим профилем маскирует только паспорт, остальные типы ПДН остаются
+открытыми:
+
+```bash
+curl -N http://localhost:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'X-Consumer-ID: passport-only' \
+  -H 'Authorization: Bearer <allowlist_key>' \
+  -d '{"model":"mock-model","messages":[{"role":"user","content":"Иван, паспорт 45 10 123456, email ivan@example.com"}]}'
+# Маскируется только паспорт, email остаётся открытым.
 ```
 
 **2. Маскировать всё, кроме EMAIL** (`excluded_pii_types` — оператор видит почту
@@ -361,6 +464,49 @@ Allowlist применяется только к продуктовому `/v1/c
 активны только для consumer, у которого заданы. `/process` (default `alfasonar`)
 не маскирует custom terms — фича работает только для product API
 (`/v1/chat/completions`), где policy резолвится по `X-Consumer-ID`.
+
+### Failure-сценарии (деградация)
+
+Поведение при недоступности компонентов настраивается через поле `degradation`
+в профиле потребителя:
+
+| Режим | Поведение при недоступности детектора/LLM |
+|---|---|
+| `fail_closed` (по умолчанию) | Возвращается контролируемая ошибка `5xx`, **не** raw текст |
+| `rule_only` | Продолжается rule-based маскирование, NER пропускается |
+
+**Fail-closed для `/process`** — при недоступности обязательного детектора
+возвращается `5xx`, а не необработанный текст как «маска»:
+
+```bash
+curl -X POST http://localhost:8000/process \
+  -H 'Content-Type: application/json' \
+  -d '{"payload":"Иванов Иван Иванович","payload_id":"fail-demo"}'
+# При недоступности детектора -> 5xx с безопасным сообщением, без raw payload.
+```
+
+**Fail-closed для LLM-прокси** — при недоступности upstream возвращается `502`,
+а не замаскированный/незамаскированный текст:
+
+```bash
+curl -N http://localhost:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mock-model","messages":[{"role":"user","content":"Привет"}],"stream":true}'
+# При недоступности backend -> 502, без утечки PII.
+```
+
+**Rule-only degradation** — профиль с `degradation: "rule_only"` продолжает
+rule-based маскирование при недоступности NER:
+
+```json
+{
+  "consumer_id": "rule-only-agent",
+  "enabled": true,
+  "degradation": "rule_only",
+  "allow_demasking": true,
+  "api_keys": ["CHANGE_ME_rule_only_api_key"]
+}
+```
 
 ### Dev-only просмотр полного запроса к mock backend
 
@@ -503,6 +649,14 @@ NER_ENABLED=true docker compose up --build
 `NER_OFFLINE` (по умолчанию `true`) запрещает скачивание из Hugging Face Hub в
 runtime.
 
+## Результаты качества и нагрузки
+
+- **Качество** (строгий entity/span harness): golden F1 0.934, api 0.931,
+  extended 0.912, variants 0.950. Подробно — [docs/benchmarks/quality-baseline.md](docs/benchmarks/quality-baseline.md).
+- **Нагрузка**: ~1000 HTTP RPS на hold (999.5), mask p95 9ms, event loop delay 0ms.
+  Подробно — [docs/benchmarks/load-test-baseline.md](docs/benchmarks/load-test-baseline.md).
+- **Оценка готовности** по критериям жюри — [docs/readiness.md](docs/readiness.md).
+
 ## Ограничения MVP
 
 - Rule-based detectors поддерживают ограниченный набор форматов. СНИЛС и ИНН
@@ -516,3 +670,37 @@ runtime.
 - Нет Redis, Kubernetes, Kafka, настоящей LLM, auth, rate limiting,
   Prometheus, retries и circuit breaker.
 - При обрыве backend-потока уже отправленный HTTP-ответ нельзя заменить на 5xx.
+
+## План развития
+
+Приоритеты после хакатона, по влиянию на качество и внедряемость:
+
+1. **Поднять api recall** (FN=90 на api dataset: PERSON 65, PASSPORT 25, INN 13) —
+   главный риск утечки ПДН в LLM. Улучшить детекторы PERSON/PASSPORT/INN и
+   границы span.
+2. **Снизить false positives** — PHONE (горячая линия/служба поддержки), ADDRESS
+   (организации), EMAIL, DRIVING_LICENSE.
+3. **Обработка до 100 000 токенов** — chunked/bounded обработка больших текстов
+   (сейчас валидация лимита есть, нагрузка не подтверждена).
+4. **RPS 2000** — подтвердить worker threads маскирования, при необходимости
+   кэшировать предсобранные детекторы (ADR-0005).
+5. **Shared state store** — переход к Redis для масштабирования stateful `/process`
+   на несколько worker-процессов (только после benchmark и ADR).
+6. **Расширение типов документов** — идентификация документов, удостоверяющих
+   личность, кроме паспорта РФ (частично: DRIVING_LICENSE, SNILS уже есть).
+7. **Рефакторинг `app/pii.py`** — файл разросся до ~2300 строк и содержит все
+   детекторы, overlap resolution, маскирование и вспомогательные функции в одном
+   месте. Привести к best practices:
+   - разбить на модули по ответственности (например, `detectors/` с одним файлом
+     на детектор, отдельные модули для overlap resolution, masking, context);
+   - вынести общие утилиты (checksum, Luhn, context scoring, границы) в отдельные
+     модули с unit-тестами;
+   - уменьшить дублирование контекстной логики между детекторами;
+   - упростить большие методы (некоторые `detect`/`_context_*` превышают разумный
+     размер) и снизить cyclomatic complexity;
+   - сохранить единый PII-контракт (`PIIDetector` → `PIIMatch`) и не менять
+     публичное поведение.
+8. **Production-готовность** — Redis, Kubernetes, Prometheus, retries, circuit
+   breaker, защищённое хранилище mapping.
+
+История работ и что уже сделано по трекам — в [docs/roadmap.md](docs/roadmap.md).

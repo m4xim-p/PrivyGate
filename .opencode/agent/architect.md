@@ -25,13 +25,13 @@ permission:
 4. `docs/source/evaluation-criteria.md` — критерии оценивания жюри (30 баллов) и
    критерии финалистов.
 5. `SECURITY.md` — обязательный security checklist.
-6. `CONTRIBUTING.md` — командный workflow и ownership hotspot-файлов.
+6. Координация команды и ownership hotspot-файлов (в `AGENTS.md`).
 7. `docs/requirements.md` — цели, ограничения и матрица покрытия.
 8. `docs/architecture.md` — границы компонентов и разрешённые зависимости.
 9. `docs/evaluation-contract.md` — контракт AlfaSonar `/process`.
 10. `docs/security.md` — модель угроз и правила обработки PII.
 11. `docs/roadmap.md` — треки и приоритеты.
-12. `docs/quality-baseline.md` — текущее качество detection/masking.
+12. `docs/benchmarks/quality-baseline.md` — текущее качество detection/masking.
 13. Все ADR из `docs/adr/` — принятые архитектурные решения.
 
 ## Сверка с фактическим состоянием

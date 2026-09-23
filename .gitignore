@@ -11,4 +11,3 @@ __pycache__/
 .coverage
 htmlcov/
 tmp/
-config/policy.json

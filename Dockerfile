@@ -13,6 +13,7 @@ COPY pyproject.toml README.md ./
 COPY app ./app
 COPY mock_llm ./mock_llm
 COPY scripts ./scripts
+COPY certs ./certs
 
 RUN case "$INSTALL_NER" in \
       true|1|yes|on) pip install --no-cache-dir '.[ner]' ;; \

@@ -56,7 +56,7 @@ Roadmap отражает порядок работ, но не заменяет �
 
 ## Трек B — качество детекторов (критерии 3.1 и 3.3, до +2.5 балла)
 
-**Файлы:** `app/pii.py`, `tests/test_*_detectors.py`, `docs/quality-baseline.md`.
+**Файлы:** `app/pii.py`, `tests/test_*_detectors.py`, `docs/benchmarks/quality-baseline.md`.
 **Изолирован:** один человек, т.к. все детекторы в общем `app/pii.py`.
 **Почему раньше:** главный риск для допуска и баллов — низкий api recall (FN=112)
 может дать утечку ПДН в LLM (стоп-сигнал финалистов) и снижение по 3.1.
@@ -114,9 +114,8 @@ Roadmap отражает порядок работ, но не заменяет �
 - [ ] Кэширование предсобранных детекторов в `PIIMaskingEngine` (ADR-0005,
   superseded) — **вывод про worker threads пока не подтверждён**, требуется
   CPU-профиль на hold-фазе при 1000 RPS.
-- [ ] Подтверждение пика 1000 RPS на целевой конфигурации (после ADR-0006:
-  hold-фаза ~999.5 HTTP RPS, mask p95 9ms, dropped_iterations ~0 — близко к
-  цели, требуется финальное подтверждение).
+- [x] Подтверждение пика 1000 RPS на целевой конфигурации (полный 5-мин прогон:
+  hold-фаза ~999.5 HTTP RPS, mask p95 9ms, dropped_iterations ~0).
 - [ ] Bounded NER concurrency и backpressure.
 - [ ] Chunked/bounded обработка до 100 000 токенов.
 - [ ] ONNX/quantization или shared store только при подтверждённом bottleneck.
@@ -134,7 +133,7 @@ Roadmap отражает порядок работ, но не заменяет �
   metrics. Реализован `/metrics` (Prometheus text); RPS/latency собираются k6.
 - [x] `/metrics` endpoint (Prometheus text): счётчики mask/demask/retry/429,
   store size (sessions/pending/tombstones/bytes), event loop delay, uptime.
-- [ ] Логирование выявленных типов ПДН по каждому запросу (подтвердить).
+- [x] Логирование выявленных типов ПДН по каждому запросу (`process_masked`/`request_started`/`upstream_rejected` логируют `pii_types` без raw PII).
 
 Критерий готовности: `/metrics` отдаёт RPS/TPS/latency; логи содержат типы ПДН
 без raw PII.
@@ -152,7 +151,9 @@ Roadmap отражает порядок работ, но не заменяет �
   — per-consumer `masking_mode` (typed_placeholder / synthetic / format_preserving).
 - [ ] RPS 2000 при Latency ≤ 0.5 с (зависит от Трека C).
 - [ ] Идентификация документов, удостоверяющих личность, кроме паспорта РФ
-  (частично: DRIVING_LICENSE, SNILS уже есть).
+  (частично: DRIVING_LICENSE, SNILS уже есть). Дополнительно реализованы
+  KPP/OGRN/SNILS, но они не входят в 17 обязательных категорий и не маскируются
+  в `/process` по умолчанию (включаются через `enabled_pii_types`).
 - [x] Контекстное маскирование по комбинации типов ПДН (PIN + номер карты),
   с настраиваемым правилом (`require_card_for_pin`).
 - [x] Custom terms маскирование по потребителю (ADR-0007): per-consumer список
@@ -171,12 +172,14 @@ Roadmap отражает порядок работ, но не заменяет �
   (маршрутизация по `model`, `X-Model-API-Key`, квоты токенов), mock fallback.
 - [ ] Лёгкий ZIP без `.git`, environments, caches, models и build outputs.
 - [ ] Доступный evaluation URL.
-- [ ] Инструкция настройки не более пяти предложений.
-- [ ] Инструкция для жюри по проверке (тестовый текст, маскирование/демаскирование,
-  логи и метрики).
-- [ ] Архитектурная схема и результаты quality/load tests.
-- [ ] Демо нормального, trap, policy и failure сценариев.
-- [ ] Список известных ограничений и план развития.
+- [x] Инструкция для жюри по проверке (в `README.md`): тестовый текст,
+  маскирование/демаскирование, логи и метрики, настройка ≤5 предложений.
+- [x] Схема архитектуры для жюри (`docs/architecture.md`).
+- [x] Оценка готовности по критериям жюри (`docs/readiness.md`).
+- [x] Архитектурная схема и результаты quality/load tests (в `docs/architecture.md`,
+  `docs/benchmarks/quality-baseline.md`, `docs/benchmarks/load-test-baseline.md`).
+- [x] Демо нормального, trap, policy и failure сценариев (в `README.md`).
+- [x] Список известных ограничений и план развития (в `README.md`).
 - [x] Merge-blocking Ruff/mypy/Bandit/pip-audit gate для complexity,
   conventions, deprecated APIs, типизации, SAST и уязвимостей зависимостей.
 
