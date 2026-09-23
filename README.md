@@ -76,24 +76,47 @@ Gateway использует порты 8001–8003. Список можно п�
 
 ## Подключение реальной LLM (ADR-0008)
 
-`/v1/chat/completions` по умолчанию проксирует в mock backend (`BACKEND_URLS`).
-Для демо можно добавить реальную OpenAI-compatible модель через `UPSTREAM_URL`:
+`/v1/chat/completions` маршрутизирует запросы по `model` через внутренний конфиг
+моделей (`config/models.json`, путь через `MODELS_CONFIG_PATH`). Конфиг
+перечитывается по TTL (`MODELS_RELOAD_INTERVAL_SECONDS`, по умолчанию 30) без
+редеплоя.
 
-```bash
-UPSTREAM_URL=https://api.example.com/v1 \
-UPSTREAM_API_KEY=your_key \
-UPSTREAM_MODEL=model-name \
-uvicorn app.main:app --port 8000
+```json
+{
+  "models": [
+    { "name": "gpt-4o", "api_base": "https://api.openai.com/v1", "model": "gpt-4o" },
+    { "name": "alfagen", "api_base": "https://api.alfagen.ru/v1", "model": "alfagen-model" }
+  ]
+}
 ```
 
-Когда `UPSTREAM_URL` задан, реальная модель добавляется в ротацию
-`RoundRobinRouter` вместе с mock backend — запросы поочерёдно попадают в mock и
-реальную модель, что удобно для сравнения ответов на демо.
+Клиент передаёт в запросе:
+- `model` — имя модели (должно совпадать с `name` в конфиге);
+- `X-Model-API-Key` — свой API-ключ для модели (прокси использует его как
+  `Authorization: Bearer` при запросе к upstream);
+- `Authorization`/`X-API-Key` — allowlist-ключ (ADR-0004);
+- `X-Consumer-ID` — профиль политики.
+
+```bash
+curl -N http://localhost:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'X-Consumer-ID: crm' \
+  -H 'Authorization: Bearer <allowlist_key>' \
+  -H 'X-Model-API-Key: <client_model_key>' \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Привет"}],
+    "stream": true
+  }'
+```
+
+Неизвестная модель → `404`. Per-consumer квота токенов
+(`max_tokens_per_request` в policy) → `429` при превышении.
 
 Реальная модель должна быть OpenAI-compatible (`/v1/chat/completions`, SSE).
 Gateway парсит SSE, демаскирует `delta.content` и пересобирает SSE, сохраняя
-корректность при пересечении placeholder'ами границ событий. API-ключ передаётся
-только через env, не в коде.
+корректность при пересечении placeholder'ами границ событий. Ключ клиента
+передаётся в запросе, не хранится на прокси.
 
 ## Пример запроса
 

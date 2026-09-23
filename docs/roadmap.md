@@ -167,8 +167,8 @@ Roadmap отражает порядок работ, но не заменяет �
 **Изолирован:** не трогает код — можно делать параллельно с любым треком.
 **Почему здесь:** обязательные артефакты на сдачу; без них решение не учитывается.
 
-- [x] Реальная LLM upstream (ADR-0008): `UpstreamClient` (OpenAI-compatible
-  SSE/text), mock fallback, гибрид mock + реальная модель для демо.
+- [x] Реальная LLM upstream (ADR-0008): `UpstreamClient` + `ModelRegistry`
+  (маршрутизация по `model`, `X-Model-API-Key`, квоты токенов), mock fallback.
 - [ ] Лёгкий ZIP без `.git`, environments, caches, models и build outputs.
 - [ ] Доступный evaluation URL.
 - [ ] Инструкция настройки не более пяти предложений.

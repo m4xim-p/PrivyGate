@@ -25,6 +25,7 @@ from app.metrics import (
     StoreEvictionTask,
     render_prometheus,
 )
+from app.model_registry import ModelRegistry
 from app.models import ChatCompletionRequest, ProcessRequest, ProcessResponse
 from app.ner import DEFAULT_NER_MODEL_REVISION, NERDetector, TransformersNERBackend
 from app.pii import (
@@ -37,7 +38,6 @@ from app.pii_engine import PIIMaskingEngine
 from app.policy import PolicyRegistry
 from app.process_service import ProcessService
 from app.process_store import ProcessStore
-from app.routing import RoundRobinRouter
 from app.upstream import UpstreamClient
 
 logging.basicConfig(
@@ -53,31 +53,6 @@ def _backend_urls() -> list[str]:
         "http://localhost:8001,http://localhost:8002,http://localhost:8003",
     )
     return [url.strip() for url in configured.split(",") if url.strip()]
-
-
-def _upstream_clients(
-    client: httpx.AsyncClient,
-) -> list[UpstreamClient]:
-    """Build upstream clients: mock backends plus an optional real model.
-
-    ``BACKEND_URLS`` are mock backends (text/plain). ``UPSTREAM_URL`` is an
-    optional real OpenAI-compatible model (SSE). When set, it is appended to
-    the rotation so a demo can compare mock vs real responses.
-    """
-    clients: list[UpstreamClient] = []
-    for url in _backend_urls():
-        clients.append(UpstreamClient(base_url=url, client=client))
-    real_url = os.getenv("UPSTREAM_URL")
-    if real_url:
-        clients.append(
-            UpstreamClient(
-                base_url=real_url,
-                client=client,
-                api_key=os.getenv("UPSTREAM_API_KEY"),
-                model=os.getenv("UPSTREAM_MODEL"),
-            )
-        )
-    return clients
 
 
 def _env_enabled(name: str, default: bool = False) -> bool:
@@ -124,9 +99,9 @@ async def lifespan(app: FastAPI):
         timeout=timeout,
         limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100),
     )
-    app.state.upstream_clients = _upstream_clients(app.state.http_client)
-    app.state.router = RoundRobinRouter(
-        [f"upstream-{i}" for i in range(len(app.state.upstream_clients))]
+    app.state.model_registry = ModelRegistry(
+        config_path=os.getenv("MODELS_CONFIG_PATH"),
+        reload_interval=float(os.getenv("MODELS_RELOAD_INTERVAL_SECONDS", "30")),
     )
     app.state.ner_enabled = _env_enabled("NER_ENABLED")
     app.state.ner_semaphore = asyncio.Semaphore(
@@ -317,6 +292,30 @@ async def chat_completions(
         raise ForbiddenError("consumer not allowed")
     policy = registry.resolve(consumer_id) if registry is not None else None
 
+    # Resolve the requested model to an upstream endpoint.
+    model_registry = getattr(request.app.state, "model_registry", None)
+    model_config = model_registry.resolve(body.model) if model_registry is not None else None
+    if model_config is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown model: {body.model}",
+        )
+
+    # Client's own API key for the model (separate from the allowlist key).
+    model_api_key = request.headers.get("X-Model-API-Key")
+
+    # Per-consumer token quota.
+    if policy is not None and policy.max_tokens_per_request is not None:
+        requested = body.max_tokens if body.max_tokens is not None else 0
+        if requested > policy.max_tokens_per_request:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"max_tokens {requested} exceeds consumer quota "
+                    f"{policy.max_tokens_per_request}"
+                ),
+            )
+
     detectors = getattr(request.app.state, "pii_detectors", None)
     if detectors is None:
         detectors = default_rule_detectors()
@@ -339,17 +338,20 @@ async def chat_completions(
     else:
         payload, masker = _mask_payload(body, detectors, **mask_kwargs)
 
-    backend_index = int((await request.app.state.router.next_backend()).split("-")[1])
-    upstream_client = request.app.state.upstream_clients[backend_index]
+    upstream_client = UpstreamClient(
+        base_url=model_config.api_base,
+        client=request.app.state.http_client,
+        model=model_config.model,
+    )
     pii_decisions = ",".join(
         f"{decision.pii_type}:{decision.confidence:.2f}:{decision.action}"
         for decision in masker.decisions
     ) or "none"
     logger.info(
-        "request_started request_id=%s backend=%s pii_count=%d pii_types=%s "
+        "request_started request_id=%s model=%s pii_count=%d pii_types=%s "
         "pii_candidates_count=%d pii_decisions=%s",
         request_id,
-        backend_index,
+        body.model,
         len(masker.mapping),
         ",".join(masker.pii_types) or "none",
         len(masker.decisions),
@@ -365,13 +367,14 @@ async def chat_completions(
             allow_demasking=(
                 policy.allow_demasking if policy is not None else True
             ),
+            api_key=model_api_key,
         )
     except (httpx.HTTPError, OSError) as exc:
         # Log only the exception class: an exception message can contain unsafe data.
         logger.error(
-            "upstream_unavailable request_id=%s backend=%s error_type=%s",
+            "upstream_unavailable request_id=%s model=%s error_type=%s",
             request_id,
-            backend_index,
+            body.model,
             type(exc).__name__,
         )
         raise HTTPException(status_code=502, detail="LLM backend unavailable") from None
@@ -381,5 +384,5 @@ async def chat_completions(
         upstream.body,
         status_code=upstream.response.status_code,
         media_type=media_type,
-        headers={"X-Request-ID": request_id, "X-Backend": str(backend_index)},
+        headers={"X-Request-ID": request_id, "X-Model": body.model},
     )

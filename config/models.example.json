@@ -1,0 +1,19 @@
+{
+  "models": [
+    {
+      "name": "gpt-4o",
+      "api_base": "https://api.openai.com/v1",
+      "model": "gpt-4o"
+    },
+    {
+      "name": "claude-3",
+      "api_base": "https://api.anthropic.com/v1",
+      "model": "claude-3-5-sonnet"
+    },
+    {
+      "name": "alfagen",
+      "api_base": "https://api.alfagen.ru/v1",
+      "model": "alfagen-model"
+    }
+  ]
+}

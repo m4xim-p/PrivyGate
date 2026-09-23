@@ -7,9 +7,8 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
       BACKEND_URLS: http://backend-1:8000,http://backend-2:8000,http://backend-3:8000
-      UPSTREAM_URL: ${UPSTREAM_URL:-}
-      UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:-}
-      UPSTREAM_MODEL: ${UPSTREAM_MODEL:-}
+      MODELS_CONFIG_PATH: ${MODELS_CONFIG_PATH:-/config/models.json}
+      MODELS_RELOAD_INTERVAL_SECONDS: ${MODELS_RELOAD_INTERVAL_SECONDS:-30}
       NER_ENABLED: ${NER_ENABLED:-false}
       NER_MODEL: ${NER_MODEL:-LLAIMlegal/ru-legal-ner}
       NER_MODEL_REVISION: ${NER_MODEL_REVISION:-924a4b1912ec6e55a4be959cab215ad8ff32a750}

@@ -39,18 +39,16 @@ class UpstreamClient:
         *,
         base_url: str,
         client: httpx.AsyncClient,
-        api_key: str | None = None,
         model: str | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._client = client
-        self._api_key = api_key
         self._model = model
 
-    def _headers(self, request_id: str) -> dict[str, str]:
+    def _headers(self, request_id: str, api_key: str | None) -> dict[str, str]:
         headers = {"X-Request-ID": request_id}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         return headers
 
     async def stream_chat(
@@ -61,6 +59,7 @@ class UpstreamClient:
         request_id: str,
         pii_types: list[str],
         allow_demasking: bool = True,
+        api_key: str | None = None,
     ) -> UpstreamStream:
         started_at = time.perf_counter()
         if self._model:
@@ -69,7 +68,7 @@ class UpstreamClient:
             "POST",
             f"{self._base_url}/v1/chat/completions",
             json=payload,
-            headers=self._headers(request_id),
+            headers=self._headers(request_id, api_key),
         )
         response = await self._client.send(request, stream=True)
 

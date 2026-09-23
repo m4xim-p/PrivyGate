@@ -68,6 +68,8 @@ consumer identity, применяет allowlist к продуктовому API 
 - `app/proxy.py` — асинхронный upstream streaming (StreamingDemasker);
 - `app/upstream.py` — `UpstreamClient`: OpenAI-compatible upstream (SSE/text),
   auth, таймауты (ADR-0008);
+- `app/model_registry.py` — `ModelRegistry`: конфиг моделей (api_base, model),
+  маршрутизация по `model` (ADR-0008);
 - `app/routing.py` — in-memory Round Robin;
 - `mock_llm/main.py` — три конфигурируемых mock backend процесса.
 

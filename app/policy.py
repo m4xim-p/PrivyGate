@@ -65,6 +65,7 @@ class ConsumerPolicy:
     degradation: DegradationMode = "fail_closed"
     require_card_for_pin: bool = True
     custom_terms: tuple[str, ...] = ()
+    max_tokens_per_request: int | None = None
 
     @property
     def effective_pii_types(self) -> frozenset[str]:
@@ -152,6 +153,7 @@ class PolicyRegistry:
             custom_terms=(
                 tuple(str(t) for t in custom_terms) if custom_terms is not None else ()
             ),
+            max_tokens_per_request=item.get("max_tokens_per_request"),
         )
 
     def resolve(self, consumer_id: str | None) -> ConsumerPolicy:
