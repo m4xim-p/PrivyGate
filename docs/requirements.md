@@ -41,11 +41,11 @@ LLM proxy, и как отдельный сервис обработки стро
 | Водительское удостоверение | `DRIVING_LICENSE` | partial | Нужны дополнительные допустимые форматы и negatives |
 | Адрес и компоненты | `ADDRESS` | present | Двухстадийный детектор: якоря + расширение границ; точные spans (38/38 на api_dataset), гранулы (zip/region/city/street/house/flat) |
 | Email | `EMAIL` | present | Требуется corpus-level validation |
-| Телефон | `PHONE` | present | Требуется corpus-level validation контекстных кандидатов |
+| Телефон | `PHONE` | present | Корпоративные номера (8-800, служба поддержки) исключаются через negative-контекст |
 | ИНН | `INN` | present | Требуется corpus-level validation; checksum реализован |
 | Номер карты | `CARD` | present | Требуется corpus-level validation; Luhn реализован |
 | CVV/CVC | `CVV` | partial | Нужны комбинационные правила с картой |
-| PIN-код | `PIN` | partial | Нужны комбинационные правила с картой |
+| PIN-код | `PIN` | present | Комбинационное правило с картой реализовано и настраивается через `require_card_for_pin` |
 | Имя держателя карты | `CARD_HOLDER` | partial | Сейчас ориентировано на uppercase Latin и явный контекст |
 
 Дополнительно реализован `SNILS` с checksum, хотя он не входит в обязательные 17
@@ -66,7 +66,7 @@ LLM proxy, и как отдельный сервис обработки стро
 | Выбор masking strategy по потребителю | present | masking_mode: typed_placeholder, synthetic, format_preserving |
 | Независимость от регистра | partial | Реализовано не во всех detector одинаково |
 | Контекстные комбинационные правила | partial | Есть context scoring, нет общего policy engine |
-| Ловушки «Пушкин» и адрес банка | partial | Есть known-person suppression; адрес организации исключается через ORG_MARKER_RE (ПАО/ООО/банк) |
+| Ловушки «Пушкин» и адрес банка | present | Known-person suppression (включая ФИО с отчеством); адрес организации исключается через negative-контекст |
 | Безопасные логи типов PII | present | Нельзя считать заменой metrics |
 | Latency/RPS/TPS metrics | partial | Latency логируется, RPS/TPS endpoint отсутствует |
 | Ошибки и деградация | present | Fail-closed и rule_only degradation (ADR-0004) |

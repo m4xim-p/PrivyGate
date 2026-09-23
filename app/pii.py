@@ -146,11 +146,22 @@ class PhoneDetector:
                 "мобильный": 0.35,
             },
         )
+        # Corporate/help-desk numbers are not personal PII.
+        self._corporate_markers = (
+            "горячая линия",
+            "служба поддержки",
+            "контактный центр",
+            "поддержка",
+            "справочная",
+            "колл-центр",
+        )
 
     def detect(self, text: str) -> list[PIIMatch]:
         matches = [
             self._to_match(match, self.config.strong_phone_confidence)
             for match in PHONE_PATTERN.finditer(text)
+            if not self._is_toll_free(match.group(0))
+            and not self._is_corporate(text, match.start(), match.end())
         ]
         matches.extend(
             self._ambiguous_match(text, match)
@@ -158,6 +169,20 @@ class PhoneDetector:
         )
         matches.extend(self._foreign_phone_matches(text))
         return matches
+
+    def _is_corporate(self, text: str, start: int, end: int) -> bool:
+        """Return True when a phone number belongs to a corporate/help desk."""
+        normalized = text.casefold()
+        window_start = max(0, start - 60)
+        window_end = min(len(text), end + 60)
+        window = normalized[window_start:window_end]
+        return any(marker in window for marker in self._corporate_markers)
+
+    @staticmethod
+    def _is_toll_free(value: str) -> bool:
+        """Return True for toll-free 8-800 numbers (not personal PII)."""
+        digits = _digits(value)
+        return digits.startswith("8800")
 
     def _foreign_phone_matches(self, text: str) -> list[PIIMatch]:
         """Detect foreign phone numbers anchored by context markers."""
@@ -487,7 +512,7 @@ class CardDetector:
         matches: list[PIIMatch] = []
         for match in CARD_PATTERN.finditer(text):
             digits = _digits(match.group(0))
-            if not 13 <= len(digits) <= 19 or not self._passes_luhn(digits):
+            if not _passes_luhn(digits):
                 continue
             matches.append(
                 PIIMatch(
@@ -500,22 +525,25 @@ class CardDetector:
             )
         return matches
 
-    @staticmethod
-    def _passes_luhn(digits: str) -> bool:
-        checksum = 0
-        parity = len(digits) % 2
-        for index, digit in enumerate(digits):
-            value = int(digit)
-            if index % 2 == parity:
-                value *= 2
-                if value > 9:
-                    value -= 9
-            checksum += value
-        return checksum % 10 == 0
-
 
 def _digits(value: str) -> str:
     return "".join(character for character in value if character.isascii() and character.isdigit())
+
+
+def _passes_luhn(digits: str) -> bool:
+    """Return True when a digit string passes the Luhn checksum."""
+    if not 13 <= len(digits) <= 19:
+        return False
+    checksum = 0
+    parity = len(digits) % 2
+    for index, digit in enumerate(digits):
+        value = int(digit)
+        if index % 2 == parity:
+            value *= 2
+            if value > 9:
+                value -= 9
+        checksum += value
+    return checksum % 10 == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1259,7 +1287,11 @@ class PinCodeDetector:
 
     pii_type = "PIN"
 
-    def __init__(self, config: ContextConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: ContextConfig | None = None,
+        require_card: bool = True,
+    ) -> None:
         self.config = config if config is not None else ContextConfig(
             positive_context_weights={
                 "пин": 0.45,
@@ -1268,13 +1300,22 @@ class PinCodeDetector:
                 "pin": 0.45,
             },
         )
+        self._require_card = require_card
 
     def detect(self, text: str) -> list[PIIMatch]:
         matches: list[PIIMatch] = []
+        has_card = any(
+            _passes_luhn(_digits(match.group(0)))
+            for match in CARD_PATTERN.finditer(text)
+        )
         for match in PIN_PATTERN.finditer(text):
             confidence = _context_confidence(
                 text, match.start(), match.end(), self.config
             )
+            # Combination rule: PIN is masked only near a card number when
+            # require_card is enabled (configurable per consumer).
+            if self._require_card and not has_card:
+                confidence = min(confidence, 0.50)
             matches.append(
                 PIIMatch(
                     pii_type=self.pii_type,
@@ -1552,6 +1593,47 @@ def _is_surname(token: str) -> bool:
 
 KNOWN_PERSONS = frozenset(
     {
+        # Full names with patronymic (for suppression of "Имя Отчество Фамилия").
+        "александр сергеевич пушкин",
+        "лев николаевич толстой",
+        "фёдор михайлович достоевский",
+        "антон павлович чехов",
+        "михаил юрьевич лермонтов",
+        "николай васильевич гоголь",
+        "сергей александрович есенин",
+        "владимир владимирович маяковский",
+        "иван алексеевич бунин",
+        "александр александрович блок",
+        "марина ивановна цветаева",
+        "анна андреевна ахматова",
+        "борис леонидович пастернак",
+        "иосиф александрович бродский",
+        "михаил афанасьевич булгаков",
+        "иван сергеевич тургенев",
+        "александр сергеевич грибоедов",
+        "николай алексеевич некрасов",
+        "афанасий афанасьевич фет",
+        "василий андреевич жуковский",
+        "константин дмитриевич бальмонт",
+        "валерий яковлевич брюсов",
+        "андрей белый",
+        "александр иванович куприн",
+        "максим горький",
+        "аркадий петрович гайдар",
+        "самуил яковлевич маршак",
+        "корней иванович чуковский",
+        "алексей николаевич толстой",
+        "михаил александрович шолохов",
+        "александр исаевич солженицын",
+        "василий макарович шукшин",
+        "виктор петрович астафьев",
+        "валентин григорьевич распутин",
+        "юрий карлович олеша",
+        "илья ильф",
+        "евгений петров",
+        "аркадий натанович стругацкий",
+        "борис натанович стругацкий",
+        # Short names / surnames.
         "александр пушкин",
         "пушкин",
         "лев толстой",
@@ -1596,11 +1678,9 @@ KNOWN_PERSONS = frozenset(
         "бальмонт",
         "валерий брюсов",
         "брюсов",
-        "андрей белый",
         "белый",
         "александр куприн",
         "куприн",
-        "максим горький",
         "горький",
         "аркадий гайдар",
         "гайдар",
@@ -1621,9 +1701,7 @@ KNOWN_PERSONS = frozenset(
         "распутин",
         "юрий олеша",
         "олеша",
-        "илья ильф",
         "ильф",
-        "евгений петров",
         "петров",
         "аркадий стругацкий",
         "стругацкий",
@@ -1649,7 +1727,9 @@ SnilsDetector = SNILSDetector
 InnDetector = INNDetector
 
 
-def default_rule_detectors() -> tuple[PIIDetector, ...]:
+def default_rule_detectors(
+    require_card_for_pin: bool = True,
+) -> tuple[PIIDetector, ...]:
     """Build the dependency-free detector set used when NER is disabled."""
 
     return (
@@ -1668,7 +1748,7 @@ def default_rule_detectors() -> tuple[PIIDetector, ...]:
         DrivingLicenseDetector(),
         AddressDetector(),
         CVVDetector(),
-        PinCodeDetector(),
+        PinCodeDetector(require_card=require_card_for_pin),
         CardHolderDetector(),
         NameDetector(),
     )
@@ -1721,22 +1801,39 @@ class PIIMasker:
         masking_mode: str = "typed_placeholder",
         ml_detectors: Sequence[PIIDetector] | None = None,
         degradation: str = "fail_closed",
+        require_card_for_pin: bool = True,
     ) -> None:
         self.mapping: dict[str, str] = {}
         self.decisions: list[PIIDecision] = []
         self._counters: dict[str, int] = {}
         self._pii_types: set[str] = set()
         self._matches: list[PIIMatch] = []
-        self._detectors = tuple(
-            detectors
-            if detectors is not None
-            else default_rule_detectors()
-        )
+        if detectors is not None:
+            self._detectors = tuple(
+                self._with_pin_rule(detectors, require_card_for_pin)
+            )
+        else:
+            self._detectors = default_rule_detectors(
+                require_card_for_pin=require_card_for_pin
+            )
         self._ml_detectors = tuple(ml_detectors or ())
         self._min_confidence = min_confidence
         self._enabled_pii_types = enabled_pii_types
         self._masking_mode = masking_mode
         self._degradation = degradation
+
+    @staticmethod
+    def _with_pin_rule(
+        detectors: Sequence[PIIDetector], require_card: bool
+    ) -> list[PIIDetector]:
+        """Replace the PIN detector so its combination rule matches the policy."""
+        rebuilt: list[PIIDetector] = []
+        for detector in detectors:
+            if isinstance(detector, PinCodeDetector):
+                rebuilt.append(PinCodeDetector(require_card=require_card))
+            else:
+                rebuilt.append(detector)
+        return rebuilt
 
     def mask(self, text: str) -> str:
         candidates: list[PIIMatch] = []

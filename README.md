@@ -144,6 +144,7 @@ Per-consumer настройка маскирования через `PolicyRegis
 | `enabled_pii_types` | string[] | все 17 типов | Перечень типов ПДН для маскирования. |
 | `excluded_pii_types` | string[] | `[]` | Типы ПДН, которые **не** маскировать (вычитаются из `enabled_pii_types`). |
 | `allow_demasking` | bool | `true` | Право демаскирования ответа LLM. |
+| `require_card_for_pin` | bool | `true` | Комбинационное правило: при `true` PIN маскируется только рядом с номером карты; при `false` — всегда. |
 | `min_confidence` | number | `0.80` | Порог уверенности детектора. |
 | `masking_mode` | string | `typed_placeholder` | Вид маски (`typed_placeholder` / `synthetic` / `format_preserving`). |
 | `degradation` | string | `fail_closed` | Поведение при недоступности детектора (`fail_closed` / `rule_only`). |

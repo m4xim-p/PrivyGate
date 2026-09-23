@@ -51,6 +51,7 @@ class PIIMaskingEngine:
                 masking_mode=profile.masking_mode,
                 ml_detectors=self._ml_detectors,
                 degradation=profile.degradation,
+                require_card_for_pin=profile.require_card_for_pin,
             )
             masked = masker.mask(text)
             return masked, len(masker.mapping), masker.pii_types

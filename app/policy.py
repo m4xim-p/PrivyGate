@@ -63,6 +63,7 @@ class ConsumerPolicy:
     min_confidence: float | None = None
     masking_mode: MaskingMode = "typed_placeholder"
     degradation: DegradationMode = "fail_closed"
+    require_card_for_pin: bool = True
 
     @property
     def effective_pii_types(self) -> frozenset[str]:
@@ -145,6 +146,7 @@ class PolicyRegistry:
             min_confidence=item.get("min_confidence"),
             masking_mode=item.get("masking_mode", "typed_placeholder"),
             degradation=item.get("degradation", "fail_closed"),
+            require_card_for_pin=bool(item.get("require_card_for_pin", True)),
         )
 
     def resolve(self, consumer_id: str | None) -> ConsumerPolicy:
