@@ -34,16 +34,20 @@ Roadmap отражает порядок работ, но не заменяет �
 **Почему раньше:** самый большой прирост баллов (+2.5) при относительно небольшой
 работе; сейчас блок почти пустой (оценка 1.5/4).
 
-- [ ] Consumer policy registry (новый `app/policy.py`).
-- [ ] Автоматический drift test между `process_api.yaml`, FastAPI schema и contract
+- [x] Consumer policy registry (новый `app/policy.py`).
+- [x] Автоматический drift test между `process_api.yaml`, FastAPI schema и contract
   models (контракт `/process`).
-- [ ] Allowlist и optional API keys для продуктового API; не блокировать evaluation
+- [x] Allowlist и optional API keys для продуктового API; не блокировать evaluation
   `/process`, который приходит без auth headers.
-- [ ] Per-consumer PII types, thresholds и masking mode.
-- [ ] Per-consumer demasking permission.
-- [ ] Fail-closed и явно разрешённая degradation policy.
-- [ ] Offline/pinned NER deployment.
-- [ ] Failure injection tests.
+- [x] Per-consumer PII types и thresholds (enabled/excluded_pii_types, min_confidence).
+- [ ] Per-consumer masking mode: synthetic/format_preserving не реализованы
+  (всегда typed placeholder).
+- [x] Per-consumer demasking permission (allow_demasking).
+- [x] Fail-closed для `/process` при недоступности детектора (5xx, не raw текст).
+- [ ] Degradation policy `rule_only` не реализована (только fail_closed).
+- [ ] Offline/pinned NER deployment: revision закреплён, но HF_HUB_OFFLINE/
+  TRANSFORMERS_OFFLINE не заданы в коде (только в docs/security.md).
+- [x] Failure injection tests (fail-closed на недоступном детекторе).
 
 Критерий готовности: per-consumer настройка работает без правки ядра; evaluation
 `/process` не блокируется auth; fail-closed при недоступности детектора.
