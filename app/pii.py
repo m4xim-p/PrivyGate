@@ -1729,8 +1729,8 @@ class NameDetector:
                 start = found.end()
                 while start < len(text) and text[start] in " \t:;—–-":
                     start += 1
-                # Capture 2-3 capitalized words (or lowercase after "клиент").
-                if marker in ("клиент", "клиента"):
+                # Capture 2-3 capitalized words (or lowercase after "клиент"/"зовут").
+                if marker in ("клиент", "клиента", "зовут"):
                     name_re = re.compile(
                         r"[А-ЯЁа-яё]+(?:-[А-ЯЁа-яё]+)?"
                         r"(?:\s+[А-ЯЁа-яё]+(?:-[А-ЯЁа-яё]+)?){1,2}"
@@ -1744,6 +1744,12 @@ class NameDetector:
                 if not m:
                     continue
                 value = m.group(0)
+                # For lowercase after "клиент", require at least one name
+                # component from the dataset to avoid capturing arbitrary words.
+                if marker in ("клиент", "клиента") and not self._has_name_component(
+                    value.split()
+                ):
+                    continue
                 if is_known_person(value):
                     continue
                 matches.append(
@@ -1756,6 +1762,12 @@ class NameDetector:
                     )
                 )
         return matches
+
+    @staticmethod
+    def _has_name_component(tokens: Sequence[str]) -> bool:
+        """Return True when at least one token is a known first name/patronymic."""
+        lowered = [token.casefold() for token in tokens]
+        return any(token in FIRST_NAMES or token in PATRONYMICS for token in lowered)
 
     @staticmethod
     def _is_full_name(tokens: Sequence[str]) -> bool:
