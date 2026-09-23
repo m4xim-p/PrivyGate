@@ -11,3 +11,7 @@ __pycache__/
 .coverage
 htmlcov/
 tmp/
+.deck-build/
+assets/
+.chart-data-*/
+output/
