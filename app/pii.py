@@ -1303,7 +1303,7 @@ class CitizenshipDetector:
 
     @staticmethod
     def _trim_start(text: str, start: int) -> int:
-        while start < len(text) and text[start] in " \t":
+        while start < len(text) and text[start] in " \t:;":
             start += 1
         return start
 
