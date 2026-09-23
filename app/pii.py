@@ -523,6 +523,21 @@ class INNDetector:
                         confidence=self._confidence,
                     )
                 )
+                continue
+            # Non-valid-checksum INN in explicit "ИНН" context (recall-first).
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self._context
+            )
+            if confidence >= 0.80:
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=confidence,
+                    )
+                )
         # 13-digit INN in explicit "ИНН" context (checksum may not validate).
         for match in INN_13_PATTERN.finditer(text):
             confidence = _context_confidence(
@@ -1737,8 +1752,8 @@ class CardHolderDetector:
 # intentionally broad; the dataset membership check does the real filtering.
 NAME_CANDIDATE_PATTERN = re.compile(
     r"(?<![а-яёa-z0-9])"
-    r"(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?)"
-    r"(?:\s+[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?){0,3}"
+    r"(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?|[А-ЯЁ]{2,}(?:-[А-ЯЁ]{2,})?)"
+    r"(?:\s+(?:[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?|[А-ЯЁ]{2,}(?:-[А-ЯЁ]{2,})?)){0,3}"
     r"(?![а-яёa-z0-9])"
 )
 
