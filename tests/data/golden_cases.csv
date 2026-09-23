@@ -158,9 +158,9 @@ V03,CVV,positive,Код безопасности 123,true,123,Код безоп�
 V04,CVV,negative,Число 123,false,,Без контекста,[]
 V05,CVV,negative,Код 123,false,,Без контекста CVV,[]
 V06,CVV,negative,Сумма 123 руб.,false,,Сумма,[]
-N11,PIN,positive,Пин-код 1234,true,1234,Пин-код,"[{""type"":""PIN"",""start"":8,""end"":12,""value"":""1234""}]"
-N12,PIN,positive,Пин код 1234,true,1234,Пин код,"[{""type"":""PIN"",""start"":8,""end"":12,""value"":""1234""}]"
-N13,PIN,positive,PIN 1234,true,1234,PIN,"[{""type"":""PIN"",""start"":4,""end"":8,""value"":""1234""}]"
+N11,PIN,positive,"Карта 4111111111111111, пин-код 1234",true,1234,PIN с картой,"[{""type"": ""CARD"", ""start"": 6, ""end"": 22, ""value"": ""4111111111111111""}, {""type"": ""PIN"", ""start"": 32, ""end"": 36, ""value"": ""1234""}]"
+N12,PIN,positive,"Карта 4111111111111111, пин код 1234",true,1234,PIN с картой,"[{""type"": ""CARD"", ""start"": 6, ""end"": 22, ""value"": ""4111111111111111""}, {""type"": ""PIN"", ""start"": 32, ""end"": 36, ""value"": ""1234""}]"
+N13,PIN,positive,"Карта 4111111111111111, PIN 1234",true,1234,PIN с картой,"[{""type"": ""CARD"", ""start"": 6, ""end"": 22, ""value"": ""4111111111111111""}, {""type"": ""PIN"", ""start"": 28, ""end"": 32, ""value"": ""1234""}]"
 N14,PIN,negative,Число 1234,false,,Без контекста,[]
 N15,PIN,negative,Пароль 1234,false,,Пароль не PIN,[]
 N16,PIN,negative,Код подтверждения 1234,false,,Код подтверждения не PIN,[]
@@ -176,3 +176,6 @@ O02,OVERLAPPING,positive,"Иванов Иван Иванович, дата ро�
 O03,OVERLAPPING,positive,"Карта 4111111111111111, CVV 123, держатель IVAN PETROV",true,,Карта + CVV + держатель,"[{""type"":""CARD"",""start"":6,""end"":22,""value"":""4111111111111111""},{""type"":""CVV"",""start"":28,""end"":31,""value"":""123""},{""type"":""CARD_HOLDER"",""start"":43,""end"":54,""value"":""IVAN PETROV""}]"
 O04,OVERLAPPING,positive,"Паспорт 4509 123456, выдан ГУ МВД России по г. Москве, код подразделения 770-123",true,,Паспорт + орган + код,"[{""type"":""PASSPORT"",""start"":8,""end"":19,""value"":""4509 123456""},{""type"":""PASSPORT_AUTHORITY"",""start"":27,""end"":53,""value"":""ГУ МВД России по г. Москве""},{""type"":""PASSPORT_UNIT_CODE"",""start"":73,""end"":80,""value"":""770-123""}]"
 O05,OVERLAPPING,negative,Пушкин написал роман в стихах,false,,Ловушка: Пушкин не маскируется,[]
+N17,PIN,negative,Пин-код 1234,false,,PIN без карты (не маскируется),[]
+N18,PIN,negative,Пин код 1234,false,,PIN без карты (не маскируется),[]
+N19,PIN,negative,PIN 1234,false,,"PIN без карты, латиница (не маскируется)",[]
