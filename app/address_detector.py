@@ -461,6 +461,16 @@ def _split_address_into_names(text: str, start: int, end: int) -> list[tuple[int
         k = seg_end
         while k > j and text[k - 1] in ' ,;':
             k -= 1
+        # strip trailing service words (область, край, район, ...) so only
+        # the name is masked: "Нижегородская область" -> "Нижегородская"
+        while k > j:
+            m = _ADDRESS_SERVICE_WORDS.search(text, j, k)
+            if m and m.end() == k:
+                k = m.start()
+                while k > j and text[k - 1] in ' ,;':
+                    k -= 1
+            else:
+                break
         if k > j:
             result.append((j, k))
         i = seg_end + 1

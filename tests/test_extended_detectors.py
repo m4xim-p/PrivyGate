@@ -146,8 +146,9 @@ def test_address_registration_marker() -> None:
 
     assert any(m.pii_type == "ADDRESS" for m in matches)
     assert PIIMasker().mask(text) == (
-        "Регистрация: __PII_ADDRESS_1__, __PII_ADDRESS_2__, __PII_ADDRESS_3__, "
-        "п. __PII_ADDRESS_4__, ул. __PII_ADDRESS_5__, д. __PII_ADDRESS_6__."
+        "Регистрация: __PII_ADDRESS_1__, __PII_ADDRESS_2__ область, "
+        "__PII_ADDRESS_3__, п. __PII_ADDRESS_4__, ул. __PII_ADDRESS_5__, "
+        "д. __PII_ADDRESS_6__."
     )
 
 
@@ -168,7 +169,7 @@ def test_address_without_postal_code() -> None:
 
     assert any(m.pii_type == "ADDRESS" for m in matches)
     assert PIIMasker().mask(text) == (
-        "Регистрация: __PII_ADDRESS_1__, г. __PII_ADDRESS_2__, "
+        "Регистрация: __PII_ADDRESS_1__ область, г. __PII_ADDRESS_2__, "
         "ул. __PII_ADDRESS_3__, д. __PII_ADDRESS_4__, кв. __PII_ADDRESS_5__"
     )
 
