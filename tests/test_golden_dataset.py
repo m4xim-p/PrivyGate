@@ -74,7 +74,7 @@ REQUIRED_CATEGORIES = {
 # cases attribute to real categories) and passport series/number split.
 BASELINE = {
     "golden": {"f1": 0.935, "recall": 0.975, "exact_span_accuracy": 0.975},
-    "api": {"f1": 0.945, "recall": 0.936, "exact_span_accuracy": 0.970},
+    "api": {"f1": 0.946, "recall": 0.938, "exact_span_accuracy": 0.970},
     "extended": {"f1": 0.947, "recall": 1.000, "exact_span_accuracy": 1.000},
     "variants": {"f1": 0.965, "recall": 0.958, "exact_span_accuracy": 0.972},
 }
