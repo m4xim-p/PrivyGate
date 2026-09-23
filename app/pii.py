@@ -654,14 +654,12 @@ def _is_date_start(text: str, index: int) -> bool:
     ):
         return True
     # Numeric DD.MM.YYYY / DD.MM.YY
-    if (
+    return (
         text[index : index + 2].isdigit()
         and text[index + 2] == "."
         and text[index + 3 : index + 5].isdigit()
         and text[index + 5] == "."
-    ):
-        return True
-    return False
+    )
 
 
 def _is_sentence_end(text: str, period_index: int) -> bool:
