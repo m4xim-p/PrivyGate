@@ -817,6 +817,18 @@ DATE_TEXT_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+# Numeric day + month word: "11 декабря 2005 г."
+NUMERIC_DAY_MONTH_PATTERN = re.compile(
+    r"(?<![а-яёa-z0-9])"
+    r"(?P<day>[0-9]{1,2})\s+"
+    r"(?P<month>января|февраля|марта|апреля|мая|июня|июля|августа|сентября|"
+    r"октября|ноября|декабря)"
+    r"(?:\s+(?P<year>[0-9]{4}))?"
+    r"(?:\s+(?:года|г\.))?"
+    r"(?![а-яёa-z0-9])",
+    flags=re.IGNORECASE,
+)
+
 # English textual dates: "15 March 1990", "March 15, 1990".
 ENGLISH_MONTHS = {
     "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
@@ -1261,11 +1273,12 @@ class PassportIssueDateDetector:
     def __init__(self, config: ContextConfig | None = None) -> None:
         self.config = config if config is not None else ContextConfig(
             context_window_chars=120,
+            distance_decay_power=0.5,
             positive_context_weights={
-                "дата выдачи": 0.45,
-                "выдан": 0.40,
-                "выдано": 0.40,
-                "выдана": 0.40,
+                "дата выдачи": 0.50,
+                "выдан": 0.45,
+                "выдано": 0.45,
+                "выдана": 0.45,
             },
         )
 
@@ -1278,6 +1291,58 @@ class PassportIssueDateDetector:
             confidence = _context_confidence(
                 text, match.start(), match.end(), self.config
             )
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        matches.extend(self._textual_date_matches(text))
+        return matches
+
+    def _textual_date_matches(self, text: str) -> list[PIIMatch]:
+        """Detect textual issue dates: '11 декабря 2005 г.'."""
+        matches: list[PIIMatch] = []
+        for match in DATE_TEXT_PATTERN.finditer(text):
+            day = RUSSIAN_DAY_WORDS.get(match.group("day").casefold())
+            month = RUSSIAN_MONTHS.get(match.group("month").casefold())
+            year_text = match.group("year")
+            year = int(year_text) if year_text else None
+            if day is None or month is None:
+                continue
+            if year is not None and not _is_valid_calendar_date(day, month, year):
+                continue
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            if confidence < 0.80:
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        for match in NUMERIC_DAY_MONTH_PATTERN.finditer(text):
+            day = int(match.group("day"))
+            month = RUSSIAN_MONTHS.get(match.group("month").casefold())
+            year_text = match.group("year")
+            year = int(year_text) if year_text else None
+            if month is None:
+                continue
+            if year is not None and not _is_valid_calendar_date(day, month, year):
+                continue
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            if confidence < 0.80:
+                continue
             matches.append(
                 PIIMatch(
                     pii_type=self.pii_type,
