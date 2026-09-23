@@ -130,6 +130,11 @@ Per-consumer настройка маскирования через `PolicyRegis
 путь задаётся `POLICY_CONFIG_PATH`; файл перечитывается каждые
 `POLICY_RELOAD_INTERVAL_SECONDS` (по умолчанию 30) без редеплоя.
 
+**Шаблон конфига:** [`config/policy.example.json`](config/policy.example.json).
+Скопируйте его в `config/policy.json` (не коммитится — содержит API-ключи) и
+заполните реальные ключи. В docker-compose `config/` монтируется в `/config`, а
+`POLICY_CONFIG_PATH` по умолчанию указывает на `/config/policy.json`.
+
 ```json
 {
   "consumers": [
@@ -147,7 +152,8 @@ Per-consumer настройка маскирования через `PolicyRegis
 
 - `consumer_id` — идентификатор системы-потребителя (заголовок `X-Consumer-ID`).
 - `enabled` — вкл/откл обращения в модуль.
-- `enabled_pii_types` — перечень типов ПДН для маскирования.
+- `enabled_pii_types` — перечень типов ПДН для маскирования (например,
+  `["PASSPORT"]` — маскировать только паспорт).
 - `allow_demasking` — право демаскирования.
 - `api_keys` — allowlist ключей (заголовок `Authorization: Bearer` или `X-API-Key`).
 

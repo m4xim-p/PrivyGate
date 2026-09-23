@@ -15,6 +15,10 @@ services:
       NER_MAX_LENGTH: ${NER_MAX_LENGTH:-512}
       NER_STRIDE: ${NER_STRIDE:-64}
       NER_MAX_CONCURRENCY: ${NER_MAX_CONCURRENCY:-1}
+      POLICY_CONFIG_PATH: ${POLICY_CONFIG_PATH:-/config/policy.json}
+      POLICY_RELOAD_INTERVAL_SECONDS: ${POLICY_RELOAD_INTERVAL_SECONDS:-30}
+    volumes:
+      - ./config:/config:ro
     ports:
       - "8000:8000"
     depends_on:

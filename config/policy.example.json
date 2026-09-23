@@ -1,0 +1,26 @@
+{
+  "consumers": [
+    {
+      "consumer_id": "crm",
+      "enabled": true,
+      "enabled_pii_types": ["PERSON", "PHONE", "EMAIL"],
+      "allow_demasking": false,
+      "min_confidence": 0.8,
+      "api_keys": ["CHANGE_ME_crm_api_key"]
+    },
+    {
+      "consumer_id": "analytics",
+      "enabled": true,
+      "enabled_pii_types": ["EMAIL", "PHONE"],
+      "allow_demasking": true,
+      "api_keys": ["CHANGE_ME_analytics_api_key"]
+    },
+    {
+      "consumer_id": "passport-only",
+      "enabled": true,
+      "enabled_pii_types": ["PASSPORT"],
+      "allow_demasking": true,
+      "api_keys": ["CHANGE_ME_passport_api_key"]
+    }
+  ]
+}
