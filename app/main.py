@@ -232,7 +232,7 @@ async def chat_completions(
         detectors = default_rule_detectors()
     mask_kwargs = (
         {
-            "enabled_pii_types": policy.enabled_pii_types,
+            "enabled_pii_types": policy.effective_pii_types,
             "masking_mode": policy.masking_mode,
         }
         if policy is not None

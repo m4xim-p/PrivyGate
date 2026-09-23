@@ -21,6 +21,13 @@
       "enabled_pii_types": ["PASSPORT"],
       "allow_demasking": true,
       "api_keys": ["CHANGE_ME_passport_api_key"]
+    },
+    {
+      "consumer_id": "email-agent",
+      "enabled": true,
+      "excluded_pii_types": ["EMAIL"],
+      "allow_demasking": true,
+      "api_keys": ["CHANGE_ME_email_agent_api_key"]
     }
   ]
 }

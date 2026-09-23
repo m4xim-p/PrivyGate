@@ -49,15 +49,25 @@ class ConsumerPolicy:
 
     The minimal fields cover criterion 3.4 (enabled PII types, demasking
     permission, on/off). The remaining fields are optional extensions.
+
+    ``enabled_pii_types`` is the set of PII types to mask. ``excluded_pii_types``
+    is subtracted from it, so a consumer can express "mask everything except
+    EMAIL" without listing all other types.
     """
 
     consumer_id: str
     enabled: bool = True
     enabled_pii_types: frozenset[str] = field(default_factory=lambda: _ALL_PII_TYPES)
+    excluded_pii_types: frozenset[str] = frozenset()
     allow_demasking: bool = True
     min_confidence: float | None = None
     masking_mode: MaskingMode = "typed_placeholder"
     degradation: DegradationMode = "fail_closed"
+
+    @property
+    def effective_pii_types(self) -> frozenset[str]:
+        """PII types actually masked after applying exclusions."""
+        return self.enabled_pii_types - self.excluded_pii_types
 
 
 @dataclass(frozen=True)
@@ -121,11 +131,15 @@ class PolicyRegistry:
     @staticmethod
     def _parse_policy(item: dict) -> ConsumerPolicy:
         enabled_types = item.get("enabled_pii_types")
+        excluded_types = item.get("excluded_pii_types")
         return ConsumerPolicy(
             consumer_id=str(item["consumer_id"]),
             enabled=bool(item.get("enabled", True)),
             enabled_pii_types=(
                 frozenset(enabled_types) if enabled_types is not None else _ALL_PII_TYPES
+            ),
+            excluded_pii_types=(
+                frozenset(excluded_types) if excluded_types is not None else frozenset()
             ),
             allow_demasking=bool(item.get("allow_demasking", True)),
             min_confidence=item.get("min_confidence"),

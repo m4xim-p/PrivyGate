@@ -45,7 +45,7 @@ class PIIMaskingEngine:
                     if profile.min_confidence is not None
                     else DEFAULT_MASKING_CONFIDENCE
                 ),
-                enabled_pii_types=profile.enabled_pii_types,
+                enabled_pii_types=profile.effective_pii_types,
                 masking_mode=profile.masking_mode,
             )
             masked = masker.mask(text)

@@ -125,3 +125,40 @@ def test_consumer_policy_defaults() -> None:
     assert policy.masking_mode == "typed_placeholder"
     assert policy.degradation == "fail_closed"
     assert "PERSON" in policy.enabled_pii_types
+
+
+def test_excluded_pii_types_subtracted_from_enabled() -> None:
+    policy = ConsumerPolicy(consumer_id="email-agent", excluded_pii_types=frozenset({"EMAIL"}))
+    assert "EMAIL" not in policy.effective_pii_types
+    assert "PERSON" in policy.effective_pii_types
+    assert "PASSPORT" in policy.effective_pii_types
+
+
+def test_excluded_pii_types_parsed_from_json(tmp_path) -> None:
+    path = _write_config(
+        tmp_path,
+        [
+            {
+                "consumer_id": "email-agent",
+                "enabled": True,
+                "excluded_pii_types": ["EMAIL"],
+                "allow_demasking": True,
+            }
+        ],
+    )
+    registry = PolicyRegistry(config_path=path)
+    policy = registry.resolve("email-agent")
+    assert "EMAIL" not in policy.effective_pii_types
+    assert "PERSON" in policy.effective_pii_types
+
+
+def test_masker_excludes_pii_types() -> None:
+    text = "Иван Иванов, email test@example.com, телефон +7 900 123 45 67"
+    masker = PIIMasker(
+        detectors=default_rule_detectors(),
+        enabled_pii_types=frozenset({"PERSON", "EMAIL", "PHONE"}) - frozenset({"EMAIL"}),
+    )
+    masked = masker.mask(text)
+    assert "test@example.com" in masked
+    assert "Иван Иванов" not in masked
+    assert "+7 900 123 45 67" not in masked
