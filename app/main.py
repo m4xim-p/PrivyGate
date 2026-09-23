@@ -37,8 +37,8 @@ from app.pii_engine import PIIMaskingEngine
 from app.policy import PolicyRegistry
 from app.process_service import ProcessService
 from app.process_store import ProcessStore
-from app.proxy import open_upstream_stream
 from app.routing import RoundRobinRouter
+from app.upstream import UpstreamClient
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -53,6 +53,31 @@ def _backend_urls() -> list[str]:
         "http://localhost:8001,http://localhost:8002,http://localhost:8003",
     )
     return [url.strip() for url in configured.split(",") if url.strip()]
+
+
+def _upstream_clients(
+    client: httpx.AsyncClient,
+) -> list[UpstreamClient]:
+    """Build upstream clients: mock backends plus an optional real model.
+
+    ``BACKEND_URLS`` are mock backends (text/plain). ``UPSTREAM_URL`` is an
+    optional real OpenAI-compatible model (SSE). When set, it is appended to
+    the rotation so a demo can compare mock vs real responses.
+    """
+    clients: list[UpstreamClient] = []
+    for url in _backend_urls():
+        clients.append(UpstreamClient(base_url=url, client=client))
+    real_url = os.getenv("UPSTREAM_URL")
+    if real_url:
+        clients.append(
+            UpstreamClient(
+                base_url=real_url,
+                client=client,
+                api_key=os.getenv("UPSTREAM_API_KEY"),
+                model=os.getenv("UPSTREAM_MODEL"),
+            )
+        )
+    return clients
 
 
 def _env_enabled(name: str, default: bool = False) -> bool:
@@ -99,7 +124,10 @@ async def lifespan(app: FastAPI):
         timeout=timeout,
         limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100),
     )
-    app.state.router = RoundRobinRouter(_backend_urls())
+    app.state.upstream_clients = _upstream_clients(app.state.http_client)
+    app.state.router = RoundRobinRouter(
+        [f"upstream-{i}" for i in range(len(app.state.upstream_clients))]
+    )
     app.state.ner_enabled = _env_enabled("NER_ENABLED")
     app.state.ner_semaphore = asyncio.Semaphore(
         int(os.getenv("NER_MAX_CONCURRENCY", "1"))
@@ -311,7 +339,8 @@ async def chat_completions(
     else:
         payload, masker = _mask_payload(body, detectors, **mask_kwargs)
 
-    backend = await request.app.state.router.next_backend()
+    backend_index = int((await request.app.state.router.next_backend()).split("-")[1])
+    upstream_client = request.app.state.upstream_clients[backend_index]
     pii_decisions = ",".join(
         f"{decision.pii_type}:{decision.confidence:.2f}:{decision.action}"
         for decision in masker.decisions
@@ -320,7 +349,7 @@ async def chat_completions(
         "request_started request_id=%s backend=%s pii_count=%d pii_types=%s "
         "pii_candidates_count=%d pii_decisions=%s",
         request_id,
-        backend,
+        backend_index,
         len(masker.mapping),
         ",".join(masker.pii_types) or "none",
         len(masker.decisions),
@@ -328,9 +357,7 @@ async def chat_completions(
     )
 
     try:
-        upstream = await open_upstream_stream(
-            client=request.app.state.http_client,
-            backend=backend,
+        upstream = await upstream_client.stream_chat(
             payload=payload,
             mapping=masker.mapping,
             request_id=request_id,
@@ -344,7 +371,7 @@ async def chat_completions(
         logger.error(
             "upstream_unavailable request_id=%s backend=%s error_type=%s",
             request_id,
-            backend,
+            backend_index,
             type(exc).__name__,
         )
         raise HTTPException(status_code=502, detail="LLM backend unavailable") from None
@@ -354,5 +381,5 @@ async def chat_completions(
         upstream.body,
         status_code=upstream.response.status_code,
         media_type=media_type,
-        headers={"X-Request-ID": request_id, "X-Backend": backend},
+        headers={"X-Request-ID": request_id, "X-Backend": str(backend_index)},
     )

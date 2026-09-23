@@ -74,6 +74,27 @@ uvicorn app.main:app --port 8000
 Gateway использует порты 8001–8003. Список можно переопределить переменной
 `BACKEND_URLS`, разделяя URL запятыми.
 
+## Подключение реальной LLM (ADR-0008)
+
+`/v1/chat/completions` по умолчанию проксирует в mock backend (`BACKEND_URLS`).
+Для демо можно добавить реальную OpenAI-compatible модель через `UPSTREAM_URL`:
+
+```bash
+UPSTREAM_URL=https://api.example.com/v1 \
+UPSTREAM_API_KEY=your_key \
+UPSTREAM_MODEL=model-name \
+uvicorn app.main:app --port 8000
+```
+
+Когда `UPSTREAM_URL` задан, реальная модель добавляется в ротацию
+`RoundRobinRouter` вместе с mock backend — запросы поочерёдно попадают в mock и
+реальную модель, что удобно для сравнения ответов на демо.
+
+Реальная модель должна быть OpenAI-compatible (`/v1/chat/completions`, SSE).
+Gateway парсит SSE, демаскирует `delta.content` и пересобирает SSE, сохраняя
+корректность при пересечении placeholder'ами границ событий. API-ключ передаётся
+только через env, не в коде.
+
 ## Пример запроса
 
 Опция `-N` отключает buffering вывода curl:

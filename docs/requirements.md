@@ -71,6 +71,7 @@ LLM proxy, и как отдельный сервис обработки стро
 | Безопасные логи типов PII | present | Нельзя считать заменой metrics |
 | Latency/RPS/TPS metrics | present | `/metrics` endpoint (Prometheus text): счётчики mask/demask/retry/429, store size, event loop delay, uptime; RPS/latency собираются k6 |
 | Ошибки и деградация | present | Fail-closed и rule_only degradation (ADR-0004) |
+| Реальная LLM upstream | present | `UpstreamClient` (ADR-0008): OpenAI-compatible SSE/text, mock fallback, fail-closed 502 |
 | Ограниченный список систем | present | Allowlist для product API (ADR-0004); evaluation /process без auth |
 
 ## Нефункциональные ограничения

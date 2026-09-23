@@ -65,7 +65,9 @@ consumer identity, применяет allowlist к продуктовому API 
   `render_prometheus` (Prometheus text для `GET /metrics`);
 - `app/ner.py` — optional PERSON detector и Transformers adapter;
 - `app/main.py` — FastAPI lifespan и OpenAI-like Gateway endpoint;
-- `app/proxy.py` — асинхронный upstream streaming;
+- `app/proxy.py` — асинхронный upstream streaming (StreamingDemasker);
+- `app/upstream.py` — `UpstreamClient`: OpenAI-compatible upstream (SSE/text),
+  auth, таймауты (ADR-0008);
 - `app/routing.py` — in-memory Round Robin;
 - `mock_llm/main.py` — три конфигурируемых mock backend процесса.
 
