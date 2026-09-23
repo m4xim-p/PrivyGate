@@ -64,6 +64,7 @@ LLM proxy, и как отдельный сервис обработки стро
 | Демаскирование по политике потребителя | present | ConsumerPolicy.allow_demasking (ADR-0004) |
 | Маска AlfaSonar | present | Typed placeholders допустимы; нужно измерить точность PII spans |
 | Выбор masking strategy по потребителю | present | masking_mode: typed_placeholder, synthetic, format_preserving |
+| Custom terms маскирование по потребителю | present | ConsumerPolicy.custom_terms (ADR-0007): per-consumer список терминов, маскируются только для заданной системы |
 | Независимость от регистра | partial | Реализовано не во всех detector одинаково |
 | Контекстные комбинационные правила | partial | Есть context scoring, нет общего policy engine |
 | Ловушки «Пушкин» и адрес банка | present | Known-person suppression (включая ФИО с отчеством); адрес организации исключается через negative-контекст |

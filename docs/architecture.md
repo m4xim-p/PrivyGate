@@ -50,8 +50,8 @@ consumer identity, применяет allowlist к продуктовому API 
 
 ## Существующие компоненты
 
-- `app/pii.py` — detector protocol, rule detectors, overlap resolution, masker и
-  streaming demasker;
+- `app/pii.py` — detector protocol, rule detectors, overlap resolution, masker,
+  streaming demasker и `CustomTermDetector` (per-consumer термины, ADR-0007);
 - `app/pii_engine.py` — `PIIMaskingEngine`: immutable detector profile, создаёт
   `PIIMasker` на запрос, маскирует в worker thread, возвращает только masked и
   безопасную диагностику (без mapping);

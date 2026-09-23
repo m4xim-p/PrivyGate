@@ -199,6 +199,7 @@ Per-consumer настройка маскирования через `PolicyRegis
 | `min_confidence` | number | `0.80` | Порог уверенности детектора. |
 | `masking_mode` | string | `typed_placeholder` | Вид маски (`typed_placeholder` / `synthetic` / `format_preserving`). |
 | `degradation` | string | `fail_closed` | Поведение при недоступности детектора (`fail_closed` / `rule_only`). |
+| `custom_terms` | string[] | `[]` | Список терминов для маскирования только для этой системы (ADR-0007). |
 | `api_keys` | string[] | `[]` | Allowlist ключей (заголовок `Authorization: Bearer` или `X-API-Key`). |
 
 #### Типы ПДН (`enabled_pii_types` / `excluded_pii_types`)
@@ -277,6 +278,28 @@ Allowlist применяется только к продуктовому `/v1/c
 `format_preserving` — дополнительные возможности для отдельных consumer profiles
 (критерий 3.7). Во всех режимах mapping хранит original, поэтому demasking
 работает одинаково.
+
+### Custom terms маскирование (`custom_terms`, ADR-0007)
+
+Система-потребитель может указать список терминов/слов, которые должны
+маскироваться **только для этой системы**. Термины матчатся как точные слова
+(word-boundary, case-insensitive) и маскируются в выбранном `masking_mode`.
+
+```json
+{
+  "consumer_id": "custom-terms-agent",
+  "enabled": true,
+  "custom_terms": ["проект-альфа", "секрет"],
+  "allow_demasking": true,
+  "api_keys": ["CHANGE_ME_custom_terms_api_key"]
+}
+```
+
+Термины маскируются как категория `CUSTOM_TERM` (например,
+`__PII_CUSTOM_TERM_1__`). Они **не входят** в 17 обязательных категорий и
+активны только для consumer, у которого заданы. `/process` (default `alfasonar`)
+не маскирует custom terms — фича работает только для product API
+(`/v1/chat/completions`), где policy резолвится по `X-Consumer-ID`.
 
 ### Dev-only просмотр полного запроса к mock backend
 

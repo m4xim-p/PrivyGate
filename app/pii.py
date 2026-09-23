@@ -137,6 +137,44 @@ class EmailDetector:
         ]
 
 
+class CustomTermDetector:
+    """Masks exact user-defined terms (word-boundary, case-insensitive).
+
+    A per-consumer category (CUSTOM_TERM) for terms that are not standard PII
+    categories. Terms are matched as whole words, case-insensitively. Never
+    logs the term values (they are consumer-confidential).
+    """
+
+    pii_type = "CUSTOM_TERM"
+
+    def __init__(self, terms: Sequence[str], confidence: float = 1.0) -> None:
+        self._confidence = confidence
+        # Precompile a single alternation pattern with word boundaries.
+        escaped = [re.escape(term) for term in terms if term]
+        self._pattern = (
+            re.compile(
+                r"\b(?:" + "|".join(escaped) + r")\b",
+                re.IGNORECASE,
+            )
+            if escaped
+            else None
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        if self._pattern is None:
+            return []
+        return [
+            PIIMatch(
+                pii_type=self.pii_type,
+                value=match.group(0),
+                start=match.start(),
+                end=match.end(),
+                confidence=self._confidence,
+            )
+            for match in self._pattern.finditer(text)
+        ]
+
+
 class PhoneDetector:
     pii_type = "PHONE"
 
@@ -2083,6 +2121,7 @@ class PIIMasker:
         ml_detectors: Sequence[PIIDetector] | None = None,
         degradation: str = "fail_closed",
         require_card_for_pin: bool = True,
+        custom_terms: Sequence[str] = (),
     ) -> None:
         self.mapping: dict[str, str] = {}
         self.decisions: list[PIIDecision] = []
@@ -2102,6 +2141,7 @@ class PIIMasker:
         self._enabled_pii_types = enabled_pii_types
         self._masking_mode = masking_mode
         self._degradation = degradation
+        self._custom_terms = tuple(custom_terms)
 
     @staticmethod
     def _with_pin_rule(
@@ -2174,6 +2214,10 @@ class PIIMasker:
         return "".join(masked_parts)
 
     def _is_enabled(self, pii_type: str) -> bool:
+        # CUSTOM_TERM is always masked when custom_terms are configured, even if
+        # it is not in enabled_pii_types (it is not part of _ALL_PII_TYPES).
+        if pii_type == "CUSTOM_TERM" and self._custom_terms:
+            return True
         if self._enabled_pii_types is None:
             return True
         return pii_type in self._enabled_pii_types
