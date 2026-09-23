@@ -28,6 +28,13 @@
       "excluded_pii_types": ["EMAIL"],
       "allow_demasking": true,
       "api_keys": ["CHANGE_ME_email_agent_api_key"]
+    },
+    {
+      "consumer_id": "call-center",
+      "enabled": true,
+      "excluded_pii_types": ["PHONE"],
+      "allow_demasking": true,
+      "api_keys": ["CHANGE_ME_call_center_api_key"]
     }
   ]
 }
