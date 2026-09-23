@@ -20,8 +20,8 @@ X18,PHONE,positive,Мой номер +49 30 1234567,true,+49 30 1234567,Неме
 X19,PHONE,negative,Phone 202-555-0143,false,,Без кода страны,[]
 X20,EMAIL,positive,Email john.doe@gmail.com,true,john.doe@gmail.com,Иностранный email,"[{""type"":""EMAIL"",""start"":6,""end"":24,""value"":""john.doe@gmail.com""}]"
 X21,EMAIL,positive,Contact: jane.smith@yahoo.co.uk,true,jane.smith@yahoo.co.uk,Иностранный email,"[{""type"":""EMAIL"",""start"":9,""end"":31,""value"":""jane.smith@yahoo.co.uk""}]"
-X22,ADDRESS,positive,"Address: Moscow, Tverskaya 7",true,"Moscow, Tverskaya 7",Английский адрес,"[{""type"":""ADDRESS"",""start"":9,""end"":28,""value"":""Moscow, Tverskaya 7""}]"
-X23,ADDRESS,positive,"Registered at: 101000, Moscow, Tverskaya 7",true,"101000, Moscow, Tverskaya 7",Английский адрес с индексом,"[{""type"":""ADDRESS"",""start"":15,""end"":42,""value"":""101000, Moscow, Tverskaya 7""}]"
+X22,ADDRESS,positive,"Address: Moscow, Tverskaya 7",true,"Moscow, Tverskaya 7",Английский адрес,"[{""type"": ""ADDRESS"", ""start"": 9, ""end"": 15, ""value"": ""Moscow""}, {""type"": ""ADDRESS"", ""start"": 17, ""end"": 28, ""value"": ""Tverskaya 7""}]"
+X23,ADDRESS,positive,"Registered at: 101000, Moscow, Tverskaya 7",true,"101000, Moscow, Tverskaya 7",Английский адрес с индексом,"[{""type"": ""ADDRESS"", ""start"": 15, ""end"": 21, ""value"": ""101000""}]"
 X24,ADDRESS,negative,"Moscow, Tverskaya 7",false,,Без контекста адреса,[]
 X25,INN,negative,Tax ID 123-45-6789,false,,SSN не входит в 17 категорий,[]
 X26,INN,negative,Tax ID 123-45-6789,false,,SSN не входит в 17 категорий,[]

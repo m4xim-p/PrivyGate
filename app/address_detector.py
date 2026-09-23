@@ -412,6 +412,60 @@ def _strip_settlement_prefix(text: str, start: int) -> int:
     return start + m.end() if m else start
 
 
+# Service words of an address that are labels, not part of the value.
+_ADDRESS_SERVICE_WORDS = re.compile(
+    r'\b(?:'
+    # settlements
+    r'город|г|село|с|посёлок|поселок|пос|п|деревня|дер|станица|ст-ца|пгт|'
+    r'хутор|хут|аул|слобода|сл|'
+    # regions
+    r'область|обл|край|район|р-н|республика|респ|округ|'
+    # streets
+    r'улица|ул|проспект|пр-т|просп|переулок|пер|шоссе|ш|бульвар|б-р|'
+    r'набережная|наб|площадь|пл|тупик|линия|аллея|микрорайон|мкр|квартал|'
+    r'кв-л|тракт|дорога|въезд|съезд|'
+    # houses
+    r'дом|д|здание|корпус|корп|кор|строение|стр|литера|лит|владение|влд|'
+    # flats
+    r'квартира|кв|офис|оф|помещение|пом|комната|комн|ком'
+    r')\b\.?',
+    re.I,
+)
+
+
+def _split_address_into_names(text: str, start: int, end: int) -> list[tuple[int, int]]:
+    """Split an address span into name-only sub-spans, excluding service words.
+
+    Splits by comma-separated segments; within each segment the leading service
+    word (город, ул., д., ...) is stripped, leaving the name.
+    "ул. Ленина, д. 135" -> [(4, 10), (15, 18)]  (Ленина, 135)
+    "Нижний Новгород" -> [(44, 59)]  (one name, not two)
+    """
+    result: list[tuple[int, int]] = []
+    i = start
+    while i < end:
+        # find the next comma-separated segment
+        seg_end = i
+        while seg_end < end and text[seg_end] not in ',;':
+            seg_end += 1
+        # strip leading separators and service words within the segment
+        j = i
+        while j < seg_end and (text[j] in ' ,;' or _ADDRESS_SERVICE_WORDS.match(text, j)):
+            m = _ADDRESS_SERVICE_WORDS.match(text, j)
+            if m:
+                j = m.end()
+            else:
+                j += 1
+        # capture the rest of the segment as one name (may be multi-word)
+        k = seg_end
+        while k > j and text[k - 1] in ' ,;':
+            k -= 1
+        if k > j:
+            result.append((j, k))
+        i = seg_end + 1
+    return result
+
+
 def detect(text: str) -> list[dict]:  # noqa: C901
     """Detect address spans. Returns list of {start, end, text}."""
     anchors = _find_anchor_spans(text)
@@ -483,7 +537,10 @@ def detect(text: str) -> list[dict]:  # noqa: C901
                                  r'регистрации|проживает|зарегистрирован|'
                                  r'зарегистрирована|прописка)\b', between, re.I):
                     continue
-            result.append({'start': s, 'end': e, 'text': text[s:e]})
+            # Split the address into name-only spans, excluding service words
+            # (город, улица, дом, ...). "ул. Ленина, д. 135" -> Ленина, 135.
+            for ns, ne in _split_address_into_names(text, s, e):
+                result.append({'start': ns, 'end': ne, 'text': text[ns:ne]})
     return result
 
 

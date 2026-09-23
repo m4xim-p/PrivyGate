@@ -134,7 +134,9 @@ def test_address_postal_code() -> None:
     matches = AddressDetector().detect(text)
 
     assert any(m.pii_type == "ADDRESS" for m in matches)
-    assert PIIMasker().mask(text) == "Адрес: __PII_ADDRESS_1__"
+    assert PIIMasker().mask(text) == (
+        "Адрес: __PII_ADDRESS_1__, город __PII_ADDRESS_2__"
+    )
 
 
 def test_address_registration_marker() -> None:
@@ -144,7 +146,8 @@ def test_address_registration_marker() -> None:
 
     assert any(m.pii_type == "ADDRESS" for m in matches)
     assert PIIMasker().mask(text) == (
-        "Регистрация: __PII_ADDRESS_1__."
+        "Регистрация: __PII_ADDRESS_1__, __PII_ADDRESS_2__, __PII_ADDRESS_3__, "
+        "п. __PII_ADDRESS_4__, ул. __PII_ADDRESS_5__, д. __PII_ADDRESS_6__."
     )
 
 
@@ -154,7 +157,8 @@ def test_address_registered_at_marker() -> None:
 
     assert any(m.pii_type == "ADDRESS" for m in matches)
     assert PIIMasker().mask(text) == (
-        "Зарегистрирован по адресу: __PII_ADDRESS_1__"
+        "Зарегистрирован по адресу: __PII_ADDRESS_1__, г. __PII_ADDRESS_2__, "
+        "ул. __PII_ADDRESS_3__, д. __PII_ADDRESS_4__, кв. __PII_ADDRESS_5__"
     )
 
 
@@ -164,7 +168,8 @@ def test_address_without_postal_code() -> None:
 
     assert any(m.pii_type == "ADDRESS" for m in matches)
     assert PIIMasker().mask(text) == (
-        "Регистрация: __PII_ADDRESS_1__"
+        "Регистрация: __PII_ADDRESS_1__, г. __PII_ADDRESS_2__, "
+        "ул. __PII_ADDRESS_3__, д. __PII_ADDRESS_4__, кв. __PII_ADDRESS_5__"
     )
 
 
@@ -174,7 +179,10 @@ def test_address_ends_at_sentence_boundary() -> None:
 
     assert any(m.pii_type == "ADDRESS" for m in matches)
     masked = PIIMasker().mask(text)
-    assert masked == "Регистрация: __PII_ADDRESS_1__. Позвоните мне."
+    assert masked == (
+        "Регистрация: __PII_ADDRESS_1__, г. __PII_ADDRESS_2__, "
+        "ул. __PII_ADDRESS_3__, д. __PII_ADDRESS_4__. Позвоните мне."
+    )
 
 
 def test_address_with_abbreviation_inside() -> None:
@@ -183,7 +191,10 @@ def test_address_with_abbreviation_inside() -> None:
 
     assert any(m.pii_type == "ADDRESS" for m in matches)
     masked = PIIMasker().mask(text)
-    assert masked == "Проживает по адресу: __PII_ADDRESS_1__."
+    assert masked == (
+        "Проживает по адресу: __PII_ADDRESS_1__, г. __PII_ADDRESS_2__, "
+        "ул. __PII_ADDRESS_3__, д. __PII_ADDRESS_4__, кв. __PII_ADDRESS_5__."
+    )
 
 
 def test_cvv() -> None:

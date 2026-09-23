@@ -72,9 +72,9 @@ REQUIRED_CATEGORIES = {
 # Updated after harness fix (span/type errors reduce precision/recall, mixed
 # cases attribute to real categories) and passport series/number split.
 BASELINE = {
-    "golden": {"f1": 0.908, "recall": 0.961, "exact_span_accuracy": 0.974},
-    "api": {"f1": 0.746, "recall": 0.693, "exact_span_accuracy": 0.867},
-    "extended": {"f1": 0.816, "recall": 0.870, "exact_span_accuracy": 0.870},
+    "golden": {"f1": 0.909, "recall": 0.962, "exact_span_accuracy": 0.974},
+    "api": {"f1": 0.828, "recall": 0.794, "exact_span_accuracy": 0.918},
+    "extended": {"f1": 0.863, "recall": 0.917, "exact_span_accuracy": 0.917},
 }
 
 # Absolute floor on critical metrics regardless of dataset (recall-first).
