@@ -157,8 +157,8 @@ def _name_token(tok: str) -> bool:
 
 # ---------------------------------------------------------------- core
 
-def _find_anchor_spans(text: str) -> list[tuple[int, int]]:  # noqa: C901
-    anchors = []
+def _find_anchor_spans(text: str) -> list[int] | list[tuple[int, int]]:  # noqa: C901
+    anchors: list[int] = []
     for m in STREET_MARK_RE.finditer(text):
         anchors.append(m.start())
     for m in re.finditer(r'\b(?:дом|здание)\b\.?\s*(?:д\.?\s*)?\d+', text, re.I):
@@ -205,11 +205,12 @@ def _find_anchor_spans(text: str) -> list[tuple[int, int]]:  # noqa: C901
         if segs and all(_segment_is_address_like(s, loose) for s in segs):
             # skip a leading address marker ("Адрес: 101000, ...")
             start = 0
-            m = re.match(r'^(?:адрес|адресу|регистрация|регистрации|проживает|'
-                         r'зарегистрирован|зарегистрирована|прописка)\b\s*[:]?\s*',
-                         text, re.I)
-            if m:
-                start = m.end()
+            marker_match = re.match(
+                r'^(?:адрес|адресу|регистрация|регистрации|проживает|'
+                r'зарегистрирован|зарегистрирована|прописка)\b\s*[:]?\s*',
+                text, re.I)
+            if marker_match:
+                start = marker_match.end()
             return [(start, len(text))]
     # A bare zip preceded by an address marker ("Индекс 101000",
     # "Проживает по адресу 101000") is an address even without a street.
@@ -469,20 +470,22 @@ def _split_address_into_names(text: str, start: int, end: int) -> list[tuple[int
 def detect(text: str) -> list[dict]:  # noqa: C901
     """Detect address spans. Returns list of {start, end, text}."""
     anchors = _find_anchor_spans(text)
-    machine = (re.search(r'\b(?:RUS|Россия|UKR|TJK|UZB|KAZ|BLR|KGZ|ABH)\b', text, re.I)
-               or '•' in text or ';;' in text)
+    machine = bool(re.search(r'\b(?:RUS|Россия|UKR|TJK|UZB|KAZ|BLR|KGZ|ABH)\b', text, re.I)
+                   or '•' in text or ';;' in text)
     if anchors and isinstance(anchors[0], tuple):
         spans = [(s, _trim_to_sentence(text, s, e)) for s, e in anchors]
     else:
         spans = []
         for a in anchors:
+            if not isinstance(a, int):
+                continue
             start = _expand_left(text, a, machine)
             end = _right_name_and_tail(text, a)
             if end <= start:
                 end = min(len(text), start + 1)
             spans.append((start, end))
     spans.sort()
-    merged = []
+    merged: list[tuple[int, int]] = []
     for s, e in spans:
         if merged and s <= merged[-1][1] + 2:
             merged[-1] = (merged[-1][0], max(merged[-1][1], e))
@@ -633,12 +636,12 @@ def _classify_segment(seg: str) -> list[dict]:  # noqa: C901
             granules.append({'type': ftype, 'value': val})
         return granules or [{'type': 'house', 'value': seg}]
     sm = STREET_INNER_RE.search(seg)
-    if sm:
+    if sm is not None:
         granules = []
         pre = seg[:sm.start()].strip(' ,.')
         post = seg[sm.end():].lstrip(' ,.')
-        if pre and CITY_PREFIX_RE.match(pre):
-            cm = CITY_PREFIX_RE.match(pre)
+        cm = CITY_PREFIX_RE.match(pre)
+        if pre and cm is not None:
             granules.append({'type': 'city', 'value': _clean_city_value(pre[cm.end():].strip())})
         elif pre and post and len(pre.split()) <= 2 and not REGION_FIELD_RE.search(pre):
             granules.append({'type': 'city', 'value': _clean_city_value(pre)})
@@ -664,10 +667,10 @@ def _classify_segment(seg: str) -> list[dict]:  # noqa: C901
 
 def parse(text: str) -> list[dict]:  # noqa: C901
     """Detect addresses and split each into granules."""
-    result = []
+    result: list[dict] = []
     for sp in detect(text):
         inner = sp['text']
-        granules = []
+        granules: list[dict] = []
         for seg in re.split(r'[,;]', inner):
             for g in _classify_segment(seg):
                 if g.get('bare'):
