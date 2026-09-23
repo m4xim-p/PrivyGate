@@ -103,3 +103,8 @@ Preflight выполняется **один раз** перед началом �
   в логах.
 - Тестовые PII должны быть синтетическими; использовать reserved example-домены и
   тестовые номера карт.
+- Качество detection/masking измеряется строгим entity/span harness
+  (`tests/quality_harness.py`) по golden datasets (`tests/data/*.csv`). Span/type
+  errors не засчитываются как TP; смешанные кейсы относят сущности к реальным
+  категориям, а не к OVERLAPPING. Baseline зафиксирован в `docs/quality-baseline.md`
+  и не должен регрессировать (ratchet в `tests/test_golden_dataset.py`).

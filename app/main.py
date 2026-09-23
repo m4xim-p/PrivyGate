@@ -168,7 +168,18 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     )
 
 
-@app.post("/process")
+@app.post(
+    "/process",
+    responses={
+        200: {"model": ProcessResponse, "description": "Успешная обработка"},
+        409: {"description": "Существующий payload_id использован с неизвестным payload"},
+        413: {"description": "Payload превышает допустимый размер"},
+        422: {"description": "Отсутствует поле или нарушен тип schema"},
+        429: {"description": "Слишком много запросов (admission limit)"},
+        410: {"description": "payload_id истёк (tombstone)"},
+        500: {"description": "Внутренняя ошибка сервиса"},
+    },
+)
 async def process(body: ProcessRequest, request: Request) -> ProcessResponse:
     service = getattr(request.app.state, "process_service", None)
     if service is None:

@@ -24,7 +24,7 @@ Roadmap отражает порядок работ, но не заменяет �
   concurrency tests.
 - [x] Admission control, `429` и `Retry-After`.
 - [x] Safe logs без payload/mapping.
-- [ ] Раздельная валидация payload bytes и estimated tokens без допущения «100k = 400 КБ».
+- [x] Раздельная валидация payload bytes и estimated tokens без допущения «100k = 400 КБ».
 - [x] OpenAPI-спецификация `process_api.yaml` из Приложения A.
 - [ ] Автоматический drift test между `process_api.yaml`, FastAPI schema и contract models.
 - [x] README curl examples.
@@ -43,6 +43,8 @@ demasking детерминированы; конфликт не изменяет
 - [ ] Typed placeholders оставить default `alfasonar`; общий `MaskingPolicy` перенести
   в per-consumer расширения.
 - [ ] Исправление границ context detectors и overlap conflicts.
+- [ ] Поднять api recall (сейчас 0.536, выше порога 0.50, но низкий): FN в
+  сложных предложениях (PASSPORT_ISSUE_DATE, PERSON, ADDRESS, DATE_OF_BIRTH, INN).
 - [ ] Systematic suppression для historical persons и organization addresses.
 - [ ] Combination policy: PIN/CVV вместе с картой.
 

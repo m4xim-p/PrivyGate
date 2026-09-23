@@ -60,10 +60,20 @@ class ProcessService:
     async def process(self, payload: str, payload_id: str) -> str:
         from app.errors import PayloadTooLargeError
 
-        if len(payload.encode("utf-8")) > self._max_payload_bytes:
-            raise PayloadTooLargeError("payload too large (bytes)")
-        if estimate_tokens(payload) > self._max_estimated_tokens:
-            raise PayloadTooLargeError("payload too large (tokens)")
+        payload_bytes = len(payload.encode("utf-8"))
+        if payload_bytes > self._max_payload_bytes:
+            raise PayloadTooLargeError(
+                f"payload too large: maximum payload size is "
+                f"{self._max_payload_bytes} bytes, but you sent {payload_bytes} bytes. "
+                f"Please reduce the length of the payload."
+            )
+        token_count = estimate_tokens(payload)
+        if token_count > self._max_estimated_tokens:
+            raise PayloadTooLargeError(
+                f"payload too large: maximum context length is "
+                f"{self._max_estimated_tokens} tokens, but you requested "
+                f"{token_count} tokens. Please reduce the length of the payload."
+            )
 
         fingerprint, length = _payload_fingerprint(payload)
         pending = await self.store.get_or_create_pending(payload_id, length, fingerprint)
