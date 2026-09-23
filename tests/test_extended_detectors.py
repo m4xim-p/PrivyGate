@@ -109,6 +109,18 @@ def test_passport_unit_code() -> None:
     assert PIIMasker().mask(text) == "Код подразделения __PII_PASSPORT_UNIT_CODE_1__"
 
 
+def test_passport_unit_code_bare_kod_marker() -> None:
+    text = "Паспорт 41 22 288695 выдан 30/08/2022 (код 470-006)"
+    match = PassportUnitCodeDetector().detect(text)[0]
+
+    assert match.pii_type == "PASSPORT_UNIT_CODE"
+    assert match.value == "470-006"
+    assert PIIMasker().mask(text) == (
+        "Паспорт __PII_PASSPORT_1__ выдан __PII_PASSPORT_ISSUE_DATE_1__ "
+        "(код __PII_PASSPORT_UNIT_CODE_1__)"
+    )
+
+
 def test_passport_issue_date() -> None:
     text = "Дата выдачи 10.05.2015"
     match = PassportIssueDateDetector().detect(text)[0]

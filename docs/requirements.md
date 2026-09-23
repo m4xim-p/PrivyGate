@@ -36,7 +36,7 @@ LLM proxy, и как отдельный сервис обработки стро
 | Паспорт РФ | `PASSPORT` | present | РФ (серия+номер), загранпаспорт (2+7 цифр), паспорт иностранного гражданина (2 буквы+7 цифр) |
 | Гражданство | `CITIZENSHIP` | partial | Context extraction может захватывать лишний текст |
 | Орган выдачи паспорта | `PASSPORT_AUTHORITY` | partial | Нужны вариации формулировок и точные границы span |
-| Код подразделения | `PASSPORT_UNIT_CODE` | partial | Нужны negative-context и форматные тесты |
+| Код подразделения | `PASSPORT_UNIT_CODE` | present | Формат XXX-XXX; маркеры «код подразделения», «подразделение», «код»; recall 0.866 на api |
 | Дата выдачи паспорта | `PASSPORT_ISSUE_DATE` | partial | Конфликтует с общим detector дат рождения |
 | Водительское удостоверение | `DRIVING_LICENSE` | partial | Нужны дополнительные допустимые форматы и negatives |
 | Адрес и компоненты | `ADDRESS` | present | Двухстадийный детектор: якоря + расширение границ; точные spans (38/38 на api_dataset), гранулы (zip/region/city/street/house/flat) |
