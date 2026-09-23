@@ -257,6 +257,12 @@ def _expand_left(text: str, pos: int, loose: bool = False) -> int:  # noqa: C901
                 continue
             return start
         if _segment_is_address_like(seg, loose):
+            # Stop at an address marker ("Индекс", "Проживает по адресу",
+            # "Адрес:") — it is a label, not part of the address.
+            if re.match(r'^(?:индекс|адрес|адресу|регистрация|регистрации|'
+                        r'проживает|зарегистрирован|зарегистрирована|прописка|'
+                        r'address|registered at|lives at)\b', seg, re.I):
+                return start
             start = seg_start
             if seg_start == 0:
                 return 0
@@ -391,6 +397,21 @@ def _is_abbrev_period(text: str, period_index: int) -> bool:
     return token in _ABBREV
 
 
+def _strip_settlement_prefix(text: str, start: int) -> int:
+    """Advance start past a settlement marker (город, г., село, посёлок, ...).
+
+    These are labels, not part of the settlement name, so they are not masked:
+    "101000, город Москва" -> masks "101000, Москва".
+    """
+    m = re.match(
+        r'\s*(?:город|г|село|с|посёлок|поселок|пос|деревня|дер|станица|'
+        r'ст-ца|пгт|хутор|хут|аул|слобода|сл)\b\.?\s*',
+        text[start:],
+        re.I,
+    )
+    return start + m.end() if m else start
+
+
 def detect(text: str) -> list[dict]:  # noqa: C901
     """Detect address spans. Returns list of {start, end, text}."""
     anchors = _find_anchor_spans(text)
@@ -436,6 +457,7 @@ def detect(text: str) -> list[dict]:  # noqa: C901
     for s, e in merged:
         while s < e and text[s] in ' ,;':
             s += 1
+        s = _strip_settlement_prefix(text, s)
         e = _trim_to_sentence(text, s, e)
         while e > s and text[e - 1] in ' ,;':
             e -= 1
