@@ -156,12 +156,21 @@ def test_cvv_without_context_is_not_masked() -> None:
 
 
 def test_pin() -> None:
-    text = "Пин-код 1234"
+    text = "Карта 4111111111111111, пин-код 1234"
     match = PinCodeDetector().detect(text)[0]
 
     assert match.pii_type == "PIN"
     assert match.value == "1234"
-    assert PIIMasker().mask(text) == "Пин-код __PII_PIN_1__"
+    assert PIIMasker().mask(text) == "Карта __PII_CARD_1__, пин-код __PII_PIN_1__"
+
+
+def test_pin_without_card_is_not_masked() -> None:
+    text = "Пин-код 1234"
+    matches = PinCodeDetector().detect(text)
+
+    assert len(matches) == 1
+    assert matches[0].confidence < 0.80
+    assert PIIMasker().mask(text) == text
 
 
 def test_pin_without_context_is_not_masked() -> None:

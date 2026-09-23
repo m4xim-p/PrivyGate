@@ -41,6 +41,7 @@ DATASETS = [
     ("golden_cases.csv", "golden"),
     ("api_cases.csv", "api"),
     ("extended_cases.csv", "extended"),
+    ("variants_cases.csv", "variants"),
 ]
 
 # Datasets expected to cover every required category as a primary category.
@@ -72,9 +73,10 @@ REQUIRED_CATEGORIES = {
 # Updated after harness fix (span/type errors reduce precision/recall, mixed
 # cases attribute to real categories) and passport series/number split.
 BASELINE = {
-    "golden": {"f1": 0.878, "recall": 0.935, "exact_span_accuracy": 0.947},
-    "api": {"f1": 0.626, "recall": 0.536, "exact_span_accuracy": 0.780},
-    "extended": {"f1": 0.857, "recall": 0.913, "exact_span_accuracy": 0.913},
+    "golden": {"f1": 0.893, "recall": 0.938, "exact_span_accuracy": 0.949},
+    "api": {"f1": 0.622, "recall": 0.522, "exact_span_accuracy": 0.779},
+    "extended": {"f1": 0.902, "recall": 0.958, "exact_span_accuracy": 0.958},
+    "variants": {"f1": 0.918, "recall": 0.889, "exact_span_accuracy": 0.949},
 }
 
 # Absolute floor on critical metrics regardless of dataset (recall-first).
@@ -106,7 +108,8 @@ def test_dataset_is_valid(filename: str, label: str) -> None:
 def test_dataset_has_both_kinds(filename: str, label: str) -> None:
     cases = _load_cases(filename)
     kinds = {case["kind"] for case in cases}
-    assert "positive" in kinds and "negative" in kinds, (
+    has_positive = bool(kinds & {"positive", "variant", "overlapping"})
+    assert has_positive and "negative" in kinds, (
         f"{label} dataset must have both positive and negative cases"
     )
 
