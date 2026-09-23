@@ -100,6 +100,10 @@ curl -N http://localhost:8000/v1/chat/completions \
 демаскирование коррелируются по `payload_id`. Полная OpenAPI-спецификация —
 [`process_api.yaml`](process_api.yaml).
 
+По каждому запросу `/process` логируются выявленные типы ПДН и их количество
+(без raw PII): `process_masked payload_id=... pii_count=4 pii_types=EMAIL,PASSPORT,...`.
+Это соответствует ТЗ §4.1 (логирование выявленных типов ПДН по каждому запросу).
+
 ```bash
 # Маскирование (первый запрос с новым payload_id)
 curl -X POST http://localhost:8000/process \
@@ -293,6 +297,27 @@ tokenizer windows. В лог попадают только latency, status и к
 ```bash
 NER_ENABLED=true docker compose up --build
 ```
+
+### Режимы NER (`NER_MODE`)
+
+`NER_MODE` управляет, когда NER-инференция выполняется для PERSON:
+
+| Режим | Поведение |
+|---|---|
+| `hybrid` (по умолчанию) | Rule-based PERSON + NER; NER всегда вызывается. |
+| `hybrid_c` | Rule-based PERSON + NER, но NER вызывается только когда есть непокрытые кандидаты (неузнаваемые имена). Быстрее, та же точность. |
+
+```bash
+# NER всегда (по умолчанию)
+NER_ENABLED=true NER_MODE=hybrid uvicorn app.main:app --port 8000
+
+# NER по непокрытым кандидатам (быстрее)
+NER_ENABLED=true NER_MODE=hybrid_c uvicorn app.main:app --port 8000
+```
+
+NER-модель разбивает широкие PERSON-span'ы по союзам («и», «а»), чтобы не
+пропускать имена в смешанных предложениях (например, «Иванов Иван и Полищук
+Максим» → два отдельных имени).
 
 ### Кеширование NER-модели в docker-образе
 
