@@ -14,8 +14,9 @@ Preflight выполняется **один раз** перед началом �
 1. Прочитать в указанном порядке:
    - `docs/source/README.md` — иерархия и provenance внешних требований;
    - `docs/source/track-specification.txt` — полное ТЗ, включая нормативные Приложения A/B;
-   - `docs/source/organizer-clarifications.txt` — сохранённые ответы организаторов;
-   - `docs/source/project-owner-notes.md` — подтверждения без приложенного первичного transcript;
+   - `docs/source/organizer-clarifications.txt` — сохранённые ответы организаторов и
+     подтверждение владельца проекта о профиле нагрузки;
+   - `docs/source/evaluation-criteria.md` — критерии оценивания жюри (30 баллов) и критерии финалистов;
    - `SECURITY.md` — обязательный merge-blocking security checklist;
    - `CONTRIBUTING.md` — командный workflow и ownership hotspot-файлов;
    - `docs/requirements.md` — цели, ограничения и матрица покрытия;

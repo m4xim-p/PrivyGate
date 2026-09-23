@@ -59,18 +59,18 @@ LLM proxy, и как отдельный сервис обработки стро
 | Boundary-safe streaming demasking | present | Placeholder может пересекать chunks |
 | `POST /process` | present | Реализован: ProcessService + ProcessStore |
 | Idempotency по `payload_id` | present | Retry masking/demasking детерминированы; конфликт -> 409 |
-| Конфигурация типов PII по потребителю | missing | Нужен policy registry |
-| Включение/отключение потребителей | missing | Нужен allowlist/evaluation profile |
-| Демаскирование по политике потребителя | missing | Сейчас всегда выполняется proxy-потоком |
+| Конфигурация типов PII по потребителю | present | PolicyRegistry (ADR-0004): per-consumer enabled_pii_types |
+| Включение/отключение потребителей | present | PolicyRegistry: allowlist + enabled флаг (ADR-0004) |
+| Демаскирование по политике потребителя | present | ConsumerPolicy.allow_demasking (ADR-0004) |
 | Маска AlfaSonar | present | Typed placeholders допустимы; нужно измерить точность PII spans |
-| Выбор masking strategy по потребителю | missing | Дополнительная возможность, не нужна для базового scorer |
+| Выбор masking strategy по потребителю | present | masking_mode: typed_placeholder, synthetic, format_preserving |
 | Независимость от регистра | partial | Реализовано не во всех detector одинаково |
 | Контекстные комбинационные правила | partial | Есть context scoring, нет общего policy engine |
 | Ловушки «Пушкин» и адрес банка | partial | Есть known-person suppression; адрес организации исключается через ORG_MARKER_RE (ПАО/ООО/банк) |
 | Безопасные логи типов PII | present | Нельзя считать заменой metrics |
 | Latency/RPS/TPS metrics | partial | Latency логируется, RPS/TPS endpoint отсутствует |
-| Ошибки и деградация | partial | Есть upstream errors; fail-closed policy не оформлена |
-| Ограниченный список систем | partial | Для product API отсутствует; evaluation `/process` явно освобождён от auth |
+| Ошибки и деградация | present | Fail-closed и rule_only degradation (ADR-0004) |
+| Ограниченный список систем | present | Allowlist для product API (ADR-0004); evaluation /process без auth |
 
 ## Нефункциональные ограничения
 

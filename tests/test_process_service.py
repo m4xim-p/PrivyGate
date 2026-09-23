@@ -33,14 +33,18 @@ class _BlockingEngine:
         self.calls = 0
         self.cancelled = False
 
-    async def mask(self, text: str) -> tuple[str, int, list[str]]:
+    async def mask(
+        self, text: str, policy: object | None = None
+    ) -> tuple[str, int, list[str]]:
         self.calls += 1
         await self.release.wait()
         return text.replace("Иванов Иван Иванович", "__PII_PERSON_1__"), 1, ["PERSON"]
 
 
 class _FailingEngine:
-    async def mask(self, text: str) -> tuple[str, int, list[str]]:
+    async def mask(
+        self, text: str, policy: object | None = None
+    ) -> tuple[str, int, list[str]]:
         raise RuntimeError("boom")
 
 
@@ -165,7 +169,9 @@ def test_future_has_no_unhandled_exception(clock: _FakeClock) -> None:
 
 def test_ascii_and_utf8_payloads(clock: _FakeClock) -> None:
     class _EchoEngine:
-        async def mask(self, text: str) -> tuple[str, int, list[str]]:
+        async def mask(
+            self, text: str, policy: object | None = None
+        ) -> tuple[str, int, list[str]]:
             return text, 0, []
 
     service = _make_service(_EchoEngine(), clock)

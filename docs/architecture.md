@@ -10,31 +10,40 @@ PrivyGate предоставляет два API-адаптера над един
   streaming demasking.
 
 `/process` реализован через `ProcessService` + `ProcessStore` над единым PII-ядром.
+`PolicyRegistry` выбирает профиль по consumer identity (для `/process` — default
+`alfasonar`).
 
 ```text
-                         +--------------------+
+                          +--------------------+
 POST /process ---------->| ProcessService     |----> ProcessStore
-                         +---------+----------+
-                                   |
-                                   v
-                         +--------------------+
-                         | PIIMaskingEngine   |
-                         | - detector profile |
-                         | - PIIMasker        |
-                         +---------+----------+
-                                   ^
-                                   |
+                          +---------+----------+
+                                    |
+                                    v
+                          +--------------------+
+                          | PIIMaskingEngine   |
+                          | - detector profile |
+                          | - PIIMasker        |
+                          +---------+----------+
+                                    ^
+                                    |
 POST /v1/chat/completions----------+
-          |
+          |                         |
+          |            +------------+------------+
+          |            | PolicyRegistry          |
+          |            | - allowlist (API key)   |
+          |            | - resolve consumer      |
+          |            |   profile               |
+          |            +-------------------------+
           +----> ChatProxyService ----> upstream LLM
                          |
                          +----> streaming demasking
 ```
 
-`ProcessService`, `ProcessStore` и `PIIMaskingEngine` реализованы. Целевой
-`PrivacyEngine` с `DetectorRegistry`/`MaskingPolicy` остаётся направлением
-развития для per-consumer политик; текущая реализация использует
-`PIIMaskingEngine` как тонкую обёртку над `PIIMasker`.
+`ProcessService`, `ProcessStore`, `PIIMaskingEngine` и `PolicyRegistry` реализованы.
+`PolicyRegistry` (ADR-0004) реализует целевое направление `PrivacyEngine` с
+`DetectorRegistry`/`MaskingPolicy` для per-consumer политик: выбирает профиль по
+consumer identity, применяет allowlist к продуктовому API и default profile
+`alfasonar` к `/process`.
 
 ## Существующие компоненты
 
@@ -135,11 +144,15 @@ Mapping proxy живёт только в течение запроса. Mapping 
 
 ## Конфигурация потребителей
 
-Целевой policy registry выбирает профиль по доверенному consumer identity. Профиль
-определяет enabled PII types, thresholds, context weights, masking mode,
+`PolicyRegistry` (ADR-0004) выбирает профиль по доверенному consumer identity.
+Профиль определяет enabled PII types, thresholds, context weights, masking mode,
 combination rules и право demasking. Для автоматической проверки используется
 default профиль `alfasonar`, потому что контракт не содержит consumer ID или auth
 headers. Обязательная product-auth не применяется к evaluation endpoint.
+
+Идентификация потребителя разделяет секрет и идентификатор (паттерн Kong key-auth):
+API-ключ (`Authorization: Bearer` / `X-API-Key`) аутентифицирует, `X-Consumer-ID`
+выбирает профиль. Конфиг policy хранится в JSON-файле и перечитывается без редеплоя.
 
 ## Масштабирование
 

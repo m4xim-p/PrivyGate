@@ -124,6 +124,80 @@ curl -X POST http://localhost:8000/process \
 `payload too large: maximum context length is N tokens, but you requested M tokens`.
 Byte и token лимиты проверяются отдельно (не «100k = 400 КБ»).
 
+### Политики потребителей (ADR-0004)
+
+Per-consumer настройка маскирования через `PolicyRegistry`. Конфиг — JSON-файл,
+путь задаётся `POLICY_CONFIG_PATH`; файл перечитывается каждые
+`POLICY_RELOAD_INTERVAL_SECONDS` (по умолчанию 30) без редеплоя.
+
+**Шаблон конфига:** [`config/policy.example.json`](config/policy.example.json).
+Скопируйте его в `config/policy.json` (не коммитится — содержит API-ключи) и
+заполните реальные ключи. В docker-compose `config/` монтируется в `/config`, а
+`POLICY_CONFIG_PATH` по умолчанию указывает на `/config/policy.json`.
+
+#### Поля `ConsumerPolicy`
+
+| Поле | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `consumer_id` | string | — | Идентификатор системы-потребителя (заголовок `X-Consumer-ID`). |
+| `enabled` | bool | `true` | Вкл/откл обращения в модуль. |
+| `enabled_pii_types` | string[] | все 17 типов | Перечень типов ПДН для маскирования. |
+| `excluded_pii_types` | string[] | `[]` | Типы ПДН, которые **не** маскировать (вычитаются из `enabled_pii_types`). |
+| `allow_demasking` | bool | `true` | Право демаскирования ответа LLM. |
+| `min_confidence` | number | `0.80` | Порог уверенности детектора. |
+| `masking_mode` | string | `typed_placeholder` | Вид маски (`typed_placeholder` / `synthetic` / `format_preserving`). |
+| `degradation` | string | `fail_closed` | Поведение при недоступности детектора (`fail_closed` / `rule_only`). |
+| `api_keys` | string[] | `[]` | Allowlist ключей (заголовок `Authorization: Bearer` или `X-API-Key`). |
+
+#### Типы ПДН (`enabled_pii_types` / `excluded_pii_types`)
+
+`PERSON`, `DATE_OF_BIRTH`, `BIRTH_PLACE`, `PASSPORT`, `CITIZENSHIP`,
+`PASSPORT_AUTHORITY`, `PASSPORT_UNIT_CODE`, `PASSPORT_ISSUE_DATE`,
+`DRIVING_LICENSE`, `ADDRESS`, `EMAIL`, `PHONE`, `INN`, `CARD`, `CVV`, `PIN`,
+`CARD_HOLDER`.
+
+#### Примеры сценариев
+
+**1. Маскировать только паспорт** (`enabled_pii_types`):
+
+```json
+{
+  "consumer_id": "passport-only",
+  "enabled": true,
+  "enabled_pii_types": ["PASSPORT"],
+  "allow_demasking": true,
+  "api_keys": ["CHANGE_ME_passport_api_key"]
+}
+```
+
+**2. Маскировать всё, кроме EMAIL** (`excluded_pii_types` — оператор видит почту
+клиента, остальное скрыто):
+
+```json
+{
+  "consumer_id": "email-agent",
+  "enabled": true,
+  "excluded_pii_types": ["EMAIL"],
+  "allow_demasking": true,
+  "api_keys": ["CHANGE_ME_email_agent_api_key"]
+}
+```
+
+**3. Маскировать всё, кроме PHONE** (колл-центр видит номер, остальное скрыто):
+
+```json
+{
+  "consumer_id": "call-center",
+  "enabled": true,
+  "excluded_pii_types": ["PHONE"],
+  "allow_demasking": true,
+  "api_keys": ["CHANGE_ME_call_center_api_key"]
+}
+```
+
+`/process` (AlfaSonar) всегда использует default profile `alfasonar` без auth.
+Allowlist применяется только к продуктовому `/v1/chat/completions`.
+
 ### Dev-only просмотр полного запроса к mock backend
 
 Для ручной проверки masking на синтетических данных можно явно включить полный

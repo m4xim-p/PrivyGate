@@ -45,3 +45,9 @@ class GoneError(ProcessError):
     """payload_id expired and is no longer available."""
 
     status_code = 410
+
+
+class ForbiddenError(ProcessError):
+    """Consumer is not allowed to access the product API."""
+
+    status_code = 403
