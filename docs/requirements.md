@@ -33,7 +33,7 @@ LLM proxy, и как отдельный сервис обработки стро
 | ФИО | `PERSON` | partial | Optional NER; требуется измерить recall и false positives |
 | Дата рождения | `DATE_OF_BIRTH` | partial | Нужен полный набор форматов и отделение от прочих дат |
 | Место рождения | `BIRTH_PLACE` | partial | Сейчас context/rule extraction; нужен quality baseline |
-| Паспорт РФ | `PASSPORT` | partial | Ограниченный перечень форматов и контекстов |
+| Паспорт РФ | `PASSPORT` | present | РФ (серия+номер), загранпаспорт (2+7 цифр), паспорт иностранного гражданина (2 буквы+7 цифр) |
 | Гражданство | `CITIZENSHIP` | partial | Context extraction может захватывать лишний текст |
 | Орган выдачи паспорта | `PASSPORT_AUTHORITY` | partial | Нужны вариации формулировок и точные границы span |
 | Код подразделения | `PASSPORT_UNIT_CODE` | partial | Нужны negative-context и форматные тесты |

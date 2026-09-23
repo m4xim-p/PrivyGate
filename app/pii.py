@@ -31,6 +31,10 @@ PASSPORT_PATTERN = re.compile(
 FOREIGN_PASSPORT_PATTERN = re.compile(
     r"(?<![0-9])(?:[0-9]{2}[ \t]+[0-9]{7})(?![0-9])"
 )
+# Foreign citizen passport: 2 letters + 7 digits (e.g. AB1234567).
+FOREIGN_ALPHA_PASSPORT_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])(?:[A-Z]{2}[0-9]{7})(?![0-9])"
+)
 SNILS_PATTERN = re.compile(
     r"(?<![0-9])[0-9]{3}[- ]?[0-9]{3}[- ]?[0-9]{3}[ ]?[0-9]{2}(?![0-9])"
 )
@@ -254,6 +258,10 @@ class PassportDetector:
                 "passport": 0.99,
                 "паспорт": 0.60,
                 "паспорта": 0.60,
+                "паспорт иностранного гражданина": 0.99,
+                "паспорт гражданина": 0.99,
+                "иностранный паспорт": 0.99,
+                "иностранного паспорта": 0.99,
             },
         )
 
@@ -284,21 +292,22 @@ class PassportDetector:
     def _foreign_passport_matches(self, text: str) -> list[PIIMatch]:
         """Detect foreign/international passports anchored by context markers."""
         matches: list[PIIMatch] = []
-        for match in FOREIGN_PASSPORT_PATTERN.finditer(text):
-            confidence = _context_confidence(
-                text, match.start(), match.end(), self._foreign_context
-            )
-            if confidence < 0.80:
-                continue
-            matches.append(
-                PIIMatch(
-                    pii_type=self.pii_type,
-                    value=match.group(0),
-                    start=match.start(),
-                    end=match.end(),
-                    confidence=confidence,
+        for pattern in (FOREIGN_PASSPORT_PATTERN, FOREIGN_ALPHA_PASSPORT_PATTERN):
+            for match in pattern.finditer(text):
+                confidence = _context_confidence(
+                    text, match.start(), match.end(), self._foreign_context
                 )
-            )
+                if confidence < 0.80:
+                    continue
+                matches.append(
+                    PIIMatch(
+                        pii_type=self.pii_type,
+                        value=match.group(0),
+                        start=match.start(),
+                        end=match.end(),
+                        confidence=confidence,
+                    )
+                )
         return matches
 
 
