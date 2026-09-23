@@ -930,6 +930,30 @@ class DateOfBirthDetector:
                     confidence=confidence,
                 )
             )
+        # Numeric day + month word: "19 мая 1963 г."
+        for match in NUMERIC_DAY_MONTH_PATTERN.finditer(text):
+            num_day = int(match.group("day"))
+            num_month = RUSSIAN_MONTHS.get(match.group("month").casefold())
+            year_text = match.group("year")
+            num_year = int(year_text) if year_text else None
+            if num_month is None:
+                continue
+            if num_year is not None and not _is_valid_calendar_date(
+                num_day, num_month, num_year
+            ):
+                continue
+            confidence = self._confidence(text, match.start(), match.end())
+            if confidence < 0.80:
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
         matches.extend(self._english_date_matches(text))
         return matches
 
@@ -1183,6 +1207,8 @@ class PassportAuthorityDetector:
                 "выдан": 0.30,
                 "орган, выдавший": 0.40,
                 "орган выдавший": 0.40,
+                "орган выдачи": 0.40,
+                "выдавший": 0.35,
             },
         )
 
