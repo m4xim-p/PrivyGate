@@ -11,6 +11,11 @@
       "model": "mock-model"
     },
     {
+      "name": "mock-3",
+      "api_base": "http://localhost:8003",
+      "model": "mock-model"
+    },
+    {
       "name": "deepseek",
       "api_base": "https://alfagen.alfabank.ru/continue-dev",
       "model": "deepseek-ai/DeepSeek-V4-Flash-0731"
