@@ -8,7 +8,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.pii import PIIDetector, PIIMatch, is_known_person
+from app.pii import (
+    NAME_CANDIDATE_PATTERN,
+    NameDetector,
+    PIIDetector,
+    PIIMatch,
+    is_known_person,
+)
 
 logger = logging.getLogger("privygate.ner")
 
@@ -29,8 +35,30 @@ class NERBackend(Protocol):
     def predict(self, text: str) -> Sequence[NERTokenPrediction]: ...
 
 
+def _has_uncovered_candidates(text: str, name_detector: PIIDetector) -> bool:
+    """True when a capitalized run looks like a name but rule-based missed it.
+
+    For each candidate run of capitalized words, if rule-based NameDetector
+    found no full name inside but the run has >=2 words, treat it as an
+    uncovered candidate that NER should inspect.
+    """
+    for candidate in NAME_CANDIDATE_PATTERN.finditer(text):
+        run = candidate.group(0)
+        tokens = run.split()
+        if len(tokens) < 2:
+            continue
+        if not name_detector.detect(run):
+            return True
+    return False
+
+
 class NERDetector:
-    """Convert token-level PER/PERSON predictions to PIIMatch spans."""
+    """Convert token-level PER/PERSON predictions to PIIMatch spans.
+
+    ``mode`` controls when NER inference runs (temporary, for comparison):
+    - ``hybrid`` (default): NER always runs.
+    - ``hybrid_c``: NER runs only when there are uncovered name candidates.
+    """
 
     pii_type = "PERSON"
 
@@ -41,11 +69,13 @@ class NERDetector:
         min_confidence: float = 0.80,
         accepted_labels: Sequence[str] = ("PER", "PERSON"),
         precheck: PIIDetector | None = None,
+        mode: str = "hybrid",
     ) -> None:
         self._backend = backend
         self._min_confidence = min_confidence
         self._accepted_labels = frozenset(label.upper() for label in accepted_labels)
         self._precheck = precheck
+        self._mode = mode
 
     def detect(self, text: str) -> list[PIIMatch]:
         started_at = time.perf_counter()
@@ -55,11 +85,12 @@ class NERDetector:
         suspicious_person_span = False
         precheck_skipped = False
         try:
-            if self._precheck is not None and self._precheck.detect(text):
-                # The rule-based pre-check already found names; skip the
-                # expensive NER inference for this text.
-                precheck_skipped = True
-                return matches
+            if self._mode == "hybrid_c":
+                # Run NER only when there are uncovered name candidates.
+                precheck = self._precheck or NameDetector()
+                if not _has_uncovered_candidates(text, precheck):
+                    precheck_skipped = True
+                    return matches
             predictions = self._backend.predict(text)
             matches, suspicious_person_span = self._person_matches(text, predictions)
             return matches
@@ -70,13 +101,14 @@ class NERDetector:
             logger.info(
                 "ner_inference_finished status=%s latency_ms=%.1f "
                 "token_predictions=%d person_entities=%d "
-                "suspicious_person_span=%s precheck_skipped=%s",
+                "suspicious_person_span=%s precheck_skipped=%s mode=%s",
                 status,
                 (time.perf_counter() - started_at) * 1000,
                 len(predictions),
                 len(matches),
                 str(suspicious_person_span).lower(),
                 str(precheck_skipped).lower(),
+                self._mode,
             )
 
     def _person_matches(
@@ -97,7 +129,7 @@ class NERDetector:
                 is_suspicious = _word_count(text[run_start:run_end]) > 4
                 suspicious_person_span = suspicious_person_span or is_suspicious
 
-                groups = _split_at_bio_starts(current_tokens)
+                groups = _split_at_bio_starts(current_tokens, text)
                 for group in groups:
                     start = group[0][0].start
                     end = group[-1][0].end
@@ -286,17 +318,35 @@ def _word_count(value: str) -> int:
 
 def _split_at_bio_starts(
     tokens: Sequence[tuple[NERTokenPrediction, str]],
+    text: str = "",
 ) -> list[list[tuple[NERTokenPrediction, str]]]:
-    """Split only at explicit BIO starts; otherwise preserve the broad span."""
+    """Split a broad PER run into separate names.
+
+    Splits at explicit BIO starts (B- prefix) and at standalone coordinating
+    conjunctions ("и", "а", "но", "да") that separate two names within one run,
+    e.g. "Иванов Иван и Полищук Максим" -> ["Иванов Иван", "Полищук Максим"].
+
+    A conjunction only splits when it is a standalone word surrounded by
+    whitespace, so it does not split inside a token (e.g. the "а" ending of
+    "Мельникова" or the "и" inside a BPE sub-token).
+    """
+    conjunctions = {"и", "а", "но", "да"}
 
     groups: list[list[tuple[NERTokenPrediction, str]]] = []
     current: list[tuple[NERTokenPrediction, str]] = []
     for token in tokens:
-        _, prefix = token
-        if prefix == "B" and current:
+        prediction, prefix = token
+        token_text = text[prediction.start : prediction.end] if text else ""
+        is_conjunction = False
+        if token_text.casefold() in conjunctions and text:
+            before = text[prediction.start - 1] if prediction.start > 0 else " "
+            after = text[prediction.end] if prediction.end < len(text) else " "
+            is_conjunction = before.isspace() and after.isspace()
+        if (prefix == "B" or is_conjunction) and current:
             groups.append(current)
             current = []
-        current.append(token)
+        if not is_conjunction:
+            current.append(token)
     if current:
         groups.append(current)
     return groups
