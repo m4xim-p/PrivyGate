@@ -1,5 +1,7 @@
 """Request-scoped PII masking and boundary-safe streaming demasking."""
 
+from __future__ import annotations
+
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -56,6 +58,8 @@ SNILS_PATTERN = re.compile(
     r"(?<![0-9])[0-9]{3}[- ]?[0-9]{3}[- ]?[0-9]{3}[ ]?[0-9]{2}(?![0-9])"
 )
 INN_PATTERN = re.compile(r"(?<![0-9])(?:[0-9]{12}|[0-9]{10})(?![0-9])")
+KPP_PATTERN = re.compile(r"(?<![0-9])[0-9]{9}(?![0-9])")
+OGRN_PATTERN = re.compile(r"(?<![0-9])[0-9]{13}(?![0-9])")
 CARD_PATTERN = re.compile(r"(?<![0-9])(?:[0-9][ -]?){12,18}[0-9](?![0-9])")
 
 DEFAULT_MASKING_CONFIDENCE = 0.80
@@ -502,6 +506,72 @@ class INNDetector:
         )
 
 
+class KPPDetector:
+    """Detect a KPP (tax registration reason code) anchored by context."""
+
+    pii_type = "KPP"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "кпп": 0.45,
+                "кпп ": 0.45,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in KPP_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            if confidence < 0.80:
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
+class OGRNDetector:
+    """Detect an OGRN (primary state registration number) anchored by context."""
+
+    pii_type = "OGRN"
+
+    def __init__(self, config: ContextConfig | None = None) -> None:
+        self.config = config if config is not None else ContextConfig(
+            positive_context_weights={
+                "огрн": 0.45,
+                "огрнип": 0.45,
+            },
+        )
+
+    def detect(self, text: str) -> list[PIIMatch]:
+        matches: list[PIIMatch] = []
+        for match in OGRN_PATTERN.finditer(text):
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            if confidence < 0.80:
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        return matches
+
+
 class CardDetector:
     pii_type = "CARD"
 
@@ -640,6 +710,28 @@ def _is_abbreviation_continuation(text: str, period_index: int) -> bool:
     return text[next_index].isalpha()
 
 
+def _is_date_start(text: str, index: int) -> bool:
+    """Return True when a date (ISO or numeric) starts at ``index``."""
+    if index + 9 >= len(text):
+        return False
+    # ISO YYYY-MM-DD
+    if (
+        text[index : index + 4].isdigit()
+        and text[index + 4] == "-"
+        and text[index + 5 : index + 7].isdigit()
+        and text[index + 7] == "-"
+        and text[index + 8 : index + 10].isdigit()
+    ):
+        return True
+    # Numeric DD.MM.YYYY / DD.MM.YY
+    return (
+        text[index : index + 2].isdigit()
+        and text[index + 2] == "."
+        and text[index + 3 : index + 5].isdigit()
+        and text[index + 5] == "."
+    )
+
+
 def _is_sentence_end(text: str, period_index: int) -> bool:
     """Return True when a period ends a sentence (uppercase or end of text)."""
     next_index = period_index + 1
@@ -726,6 +818,18 @@ DATE_TEXT_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+# Numeric day + month word: "11 декабря 2005 г."
+NUMERIC_DAY_MONTH_PATTERN = re.compile(
+    r"(?<![а-яёa-z0-9])"
+    r"(?P<day>[0-9]{1,2})\s+"
+    r"(?P<month>января|февраля|марта|апреля|мая|июня|июля|августа|сентября|"
+    r"октября|ноября|декабря)"
+    r"(?:\s+(?P<year>[0-9]{4}))?"
+    r"(?:\s+(?:года|г\.))?"
+    r"(?![а-яёa-z0-9])",
+    flags=re.IGNORECASE,
+)
+
 # English textual dates: "15 March 1990", "March 15, 1990".
 ENGLISH_MONTHS = {
     "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
@@ -755,6 +859,15 @@ def _is_valid_calendar_date(day: int, month: int, year: int) -> bool:
         return 1 <= day <= 30
     leap = (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
     return 1 <= day <= (29 if leap else 28)
+
+
+def _expand_year(year: int) -> int | None:
+    """Expand a 2-digit year (78 -> 1978, 05 -> 2005) or pass through 4-digit."""
+    if 1900 <= year <= 2100:
+        return year
+    if 0 <= year <= 99:
+        return 1900 + year if year >= 30 else 2000 + year
+    return None
 
 
 class DateOfBirthDetector:
@@ -868,13 +981,14 @@ class DateOfBirthDetector:
                 return third, second, first
             return None
 
-        # dd.mm.yyyy / mm.dd.yyyy
-        if not (1900 <= third <= 2100):
+        # dd.mm.yyyy / mm.dd.yyyy. Support 2-digit years (78 -> 1978).
+        year = _expand_year(third)
+        if year is None:
             return None
-        if _is_valid_calendar_date(first, second, third):
-            return first, second, third
-        if _is_valid_calendar_date(second, first, third):
-            return second, first, third
+        if _is_valid_calendar_date(first, second, year):
+            return first, second, year
+        if _is_valid_calendar_date(second, first, year):
+            return second, first, year
         return None
 
     def _confidence(self, text: str, start: int, end: int) -> float:
@@ -899,6 +1013,8 @@ class BirthPlaceDetector:
                 "родилась в": 0.35,
                 "родился в городе": 0.40,
                 "родилась в городе": 0.40,
+                "родился": 0.40,
+                "родилась": 0.40,
             },
         )
 
@@ -909,6 +1025,12 @@ class BirthPlaceDetector:
             for marker in re.finditer(re.escape(phrase.casefold()), normalized):
                 start = self._trim_start(text, marker.end())
                 start = self._skip_place_markers(text, start)
+                # For bare "родился"/"родилась", skip a date and find "в".
+                if phrase in ("родился", "родилась"):
+                    place_start = self._skip_to_place(text, start)
+                    if place_start is None:
+                        continue
+                    start = place_start
                 end = self._place_end(text, start)
                 if end <= start:
                     continue
@@ -925,6 +1047,24 @@ class BirthPlaceDetector:
                     )
                 )
         return matches
+
+    @staticmethod
+    def _skip_to_place(text: str, start: int) -> int | None:
+        """Skip a date/suffix after 'родился' and return the position after 'в'.
+
+        Returns None when no 'в' (place marker) is found, so a bare date after
+        'родился' is not misclassified as a birth place.
+        """
+        lowered = text.casefold()
+        idx = start
+        while idx < len(text):
+            if lowered.startswith("в ", idx):
+                return idx + 2
+            if text[idx].isalpha():
+                idx += 1
+                continue
+            idx += 1
+        return None
 
     @staticmethod
     def _skip_place_markers(text: str, start: int) -> int:
@@ -950,7 +1090,7 @@ class BirthPlaceDetector:
                 break
             if character == ".":
                 # Keep abbreviations like "г." and "ул." inside the value.
-                if end + 1 < len(text) and text[end + 1].isalpha():
+                if _is_abbreviation_continuation(text, end):
                     end += 1
                     continue
                 break
@@ -1090,7 +1230,14 @@ class PassportAuthorityDetector:
                     end += 1
                     continue
                 break
+            # Stop before a date (ISO YYYY-MM-DD or numeric DD.MM.YYYY) so a
+            # following issue date is not swallowed by the authority span.
+            if _is_date_start(text, end):
+                break
             end += 1
+        # Trim trailing whitespace so the span ends exactly at the value.
+        while end > start and text[end - 1] in " \t":
+            end -= 1
         return end
 
 
@@ -1103,7 +1250,11 @@ class PassportUnitCodeDetector:
         self.config = config if config is not None else ContextConfig(
             positive_context_weights={
                 "код подразделения": 0.40,
+                "код подр": 0.40,
+                "код подр.": 0.40,
                 "подразделение": 0.30,
+                "подр": 0.30,
+                "подр.": 0.30,
             },
         )
 
@@ -1132,9 +1283,13 @@ class PassportIssueDateDetector:
 
     def __init__(self, config: ContextConfig | None = None) -> None:
         self.config = config if config is not None else ContextConfig(
+            context_window_chars=120,
+            distance_decay_power=0.5,
             positive_context_weights={
-                "дата выдачи": 0.40,
-                "выдан": 0.30,
+                "дата выдачи": 0.50,
+                "выдан": 0.45,
+                "выдано": 0.45,
+                "выдана": 0.45,
             },
         )
 
@@ -1147,6 +1302,58 @@ class PassportIssueDateDetector:
             confidence = _context_confidence(
                 text, match.start(), match.end(), self.config
             )
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        matches.extend(self._textual_date_matches(text))
+        return matches
+
+    def _textual_date_matches(self, text: str) -> list[PIIMatch]:
+        """Detect textual issue dates: '11 декабря 2005 г.'."""
+        matches: list[PIIMatch] = []
+        for match in DATE_TEXT_PATTERN.finditer(text):
+            day = RUSSIAN_DAY_WORDS.get(match.group("day").casefold())
+            month = RUSSIAN_MONTHS.get(match.group("month").casefold())
+            year_text = match.group("year")
+            year = int(year_text) if year_text else None
+            if day is None or month is None:
+                continue
+            if year is not None and not _is_valid_calendar_date(day, month, year):
+                continue
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            if confidence < 0.80:
+                continue
+            matches.append(
+                PIIMatch(
+                    pii_type=self.pii_type,
+                    value=match.group(0),
+                    start=match.start(),
+                    end=match.end(),
+                    confidence=confidence,
+                )
+            )
+        for match in NUMERIC_DAY_MONTH_PATTERN.finditer(text):
+            day = int(match.group("day"))
+            month = RUSSIAN_MONTHS.get(match.group("month").casefold())
+            year_text = match.group("year")
+            year = int(year_text) if year_text else None
+            if month is None:
+                continue
+            if year is not None and not _is_valid_calendar_date(day, month, year):
+                continue
+            confidence = _context_confidence(
+                text, match.start(), match.end(), self.config
+            )
+            if confidence < 0.80:
+                continue
             matches.append(
                 PIIMatch(
                     pii_type=self.pii_type,
@@ -1526,8 +1733,8 @@ class NameDetector:
                 start = found.end()
                 while start < len(text) and text[start] in " \t:;—–-":
                     start += 1
-                # Capture 2-3 capitalized words (or lowercase after "клиент").
-                if marker in ("клиент", "клиента"):
+                # Capture 2-3 capitalized words (or lowercase after "клиент"/"зовут").
+                if marker in ("клиент", "клиента", "зовут"):
                     name_re = re.compile(
                         r"[А-ЯЁа-яё]+(?:-[А-ЯЁа-яё]+)?"
                         r"(?:\s+[А-ЯЁа-яё]+(?:-[А-ЯЁа-яё]+)?){1,2}"
@@ -1541,6 +1748,12 @@ class NameDetector:
                 if not m:
                     continue
                 value = m.group(0)
+                # For lowercase after "клиент", require at least one name
+                # component from the dataset to avoid capturing arbitrary words.
+                if marker in ("клиент", "клиента") and not self._has_name_component(
+                    value.split()
+                ):
+                    continue
                 if is_known_person(value):
                     continue
                 matches.append(
@@ -1553,6 +1766,12 @@ class NameDetector:
                     )
                 )
         return matches
+
+    @staticmethod
+    def _has_name_component(tokens: Sequence[str]) -> bool:
+        """Return True when at least one token is a known first name/patronymic."""
+        lowered = [token.casefold() for token in tokens]
+        return any(token in FIRST_NAMES or token in PATRONYMICS for token in lowered)
 
     @staticmethod
     def _is_full_name(tokens: Sequence[str]) -> bool:
@@ -1742,6 +1961,8 @@ def default_rule_detectors(
         PassportDetector(),
         SNILSDetector(),
         INNDetector(),
+        KPPDetector(),
+        OGRNDetector(),
         CardDetector(),
         DateOfBirthDetector(),
         BirthPlaceDetector(),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import heapq
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -26,6 +27,8 @@ class ProcessSession:
     pii_types: list[str]
     completed_at: float | None = None
     session_bytes: int = 0
+    expires_at: float = 0.0
+    version: int = 0
 
 
 @dataclass(slots=True)
@@ -62,8 +65,8 @@ class ProcessStore:
         completed_ttl: float = 120.0,
         max_entries: int = 25000,
         max_bytes: int = 536870912,
-        tombstone_ttl: float = 3600.0,
-        tombstone_max_entries: int = 50000,
+        tombstone_ttl: float = 60.0,
+        tombstone_max_entries: int | None = None,
     ) -> None:
         self._time = time_func
         self._active_ttl = active_ttl
@@ -71,19 +74,28 @@ class ProcessStore:
         self.max_entries = max_entries
         self.max_bytes = max_bytes
         self._tombstone_ttl = tombstone_ttl
-        self._tombstone_max_entries = tombstone_max_entries
+        # Tombstones are cheap (~40 bytes); default the limit to 100k so they
+        # never evict live entries before their TTL at the target RPS. New IDs
+        # are rejected with 429 when the limit is reached.
+        self._tombstone_max_entries = (
+            tombstone_max_entries if tombstone_max_entries is not None else 100000
+        )
 
         self._sessions: dict[str, ProcessSession] = {}
         self._pending: dict[str, _Pending] = {}
         self._tombstones: dict[str, float] = {}
         self._lock = asyncio.Lock()
         self.current_bytes = 0
+        # Min-heap of (expires_at, version, payload_id) for lazy eviction.
+        self._expiry_heap: list[tuple[float, int, str]] = []
+        self._version_counter = 0
+        # Min-heap of (expiry, payload_id) for bounded tombstone cleanup.
+        self._tombstone_heap: list[tuple[float, str]] = []
 
     async def get_or_create_pending(
         self, payload_id: str, payload_bytes: int, fingerprint: str
     ) -> PendingResult:
         async with self._lock:
-            self._evict_expired_locked()
             existing = self._pending.get(payload_id)
             if existing is not None:
                 conflict = existing.fingerprint != fingerprint
@@ -93,6 +105,9 @@ class ProcessStore:
 
             if payload_id in self._sessions:
                 session = self._sessions[payload_id]
+                if self._is_expired_locked(session):
+                    self._evict_session_locked(payload_id, session)
+                    raise GoneError("payload_id expired")
                 return PendingResult(
                     is_new=False,
                     conflict=False,
@@ -102,10 +117,20 @@ class ProcessStore:
             if self._is_tombstoned_locked(payload_id):
                 raise GoneError("payload_id expired")
 
+            # Evict already-expired entries before checking capacity.
+            self._evict_expired_locked()
+
             if len(self._pending) + len(self._sessions) >= self.max_entries:
                 raise TooManyRequestsError("store entry limit reached", retry_after=1.0)
             if self.current_bytes + payload_bytes > self.max_bytes:
                 raise TooManyRequestsError("store byte limit reached", retry_after=1.0)
+            if len(self._tombstones) >= self._tombstone_max_entries:
+                # Tombstone capacity exhausted: reject new IDs with 429 instead
+                # of evicting live tombstones (which would break the 410
+                # guarantee for still-active payload_ids).
+                raise TooManyRequestsError(
+                    "tombstone capacity reached", retry_after=1.0
+                )
 
             future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
             self._pending[payload_id] = _Pending(
@@ -134,7 +159,8 @@ class ProcessStore:
                 + len(payload_id.encode("utf-8"))
                 + self.SESSION_OVERHEAD_BYTES
             )
-            self._sessions[payload_id] = ProcessSession(
+            self._version_counter += 1
+            session = ProcessSession(
                 original=original,
                 masked=masked,
                 state=SessionState.ACTIVE,
@@ -143,6 +169,12 @@ class ProcessStore:
                 pii_count=pii_count,
                 pii_types=pii_types,
                 session_bytes=session_bytes,
+                expires_at=now + self._active_ttl,
+                version=self._version_counter,
+            )
+            self._sessions[payload_id] = session
+            heapq.heappush(
+                self._expiry_heap, (session.expires_at, session.version, payload_id)
             )
             if pending is not None:
                 self.current_bytes -= pending.reserved_bytes
@@ -155,12 +187,23 @@ class ProcessStore:
                 session.state = SessionState.COMPLETED
                 session.completed_at = self._time()
                 session.last_accessed_at = self._time()
+                # Update expiry to COMPLETED TTL from completion time and bump
+                # version so stale heap entries are ignored (lazy deletion).
+                self._version_counter += 1
+                session.version = self._version_counter
+                session.expires_at = session.completed_at + self._completed_ttl
+                heapq.heappush(
+                    self._expiry_heap,
+                    (session.expires_at, session.version, payload_id),
+                )
 
     async def get(self, payload_id: str) -> ProcessSession | None:
         async with self._lock:
-            self._evict_expired_locked()
             session = self._sessions.get(payload_id)
             if session is None:
+                return None
+            if self._is_expired_locked(session):
+                self._evict_session_locked(payload_id, session)
                 return None
             session.last_accessed_at = self._time()
             return session
@@ -174,7 +217,6 @@ class ProcessStore:
 
     async def is_tombstoned(self, payload_id: str) -> bool:
         async with self._lock:
-            self._evict_expired_locked()
             return self._is_tombstoned_locked(payload_id)
 
     async def expire_all(self) -> None:
@@ -182,6 +224,8 @@ class ProcessStore:
             self._sessions.clear()
             self._pending.clear()
             self._tombstones.clear()
+            self._expiry_heap.clear()
+            self._tombstone_heap.clear()
             self.current_bytes = 0
 
     def _is_tombstoned_locked(self, payload_id: str) -> bool:
@@ -193,28 +237,48 @@ class ProcessStore:
             return False
         return True
 
-    def _evict_expired_locked(self) -> None:
-        now = self._time()
-        expired_ids: list[str] = []
-        for payload_id, session in self._sessions.items():
-            if session.state is SessionState.ACTIVE:
-                ttl = self._active_ttl
-                start = session.created_at
-            else:
-                ttl = self._completed_ttl
-                start = (
-                    session.completed_at
-                    if session.completed_at is not None
-                    else session.created_at
-                )
-            if start + ttl <= now:
-                expired_ids.append(payload_id)
-        for payload_id in expired_ids:
-            session = self._sessions.pop(payload_id)
-            self.current_bytes -= session.session_bytes
-            self._tombstones[payload_id] = now + self._tombstone_ttl
-            self._trim_tombstones_locked()
+    def _is_expired_locked(self, session: ProcessSession) -> bool:
+        """O(1) TTL check for a single session."""
+        return session.expires_at <= self._time()
 
+    def _evict_session_locked(self, payload_id: str, session: ProcessSession) -> None:
+        """Move an expired session to a tombstone and free its bytes."""
+        now = self._time()
+        self._sessions.pop(payload_id, None)
+        self.current_bytes -= session.session_bytes
+        # Only create a tombstone if capacity allows; otherwise the ID is
+        # simply forgotten (new IDs are already rejected with 429 when the
+        # tombstone limit is reached, so this is a rare edge case).
+        if len(self._tombstones) < self._tombstone_max_entries:
+            expiry = now + self._tombstone_ttl
+            self._tombstones[payload_id] = expiry
+            heapq.heappush(self._tombstone_heap, (expiry, payload_id))
+        self._trim_tombstones_locked()
+
+    def _evict_expired_locked(self, limit: int | None = None) -> int:
+        """Pop expired entries from the min-heap, evicting their sessions.
+
+        Returns the number of sessions evicted. Stale heap entries (whose
+        version no longer matches the session) are skipped. ``limit`` bounds
+        the work per call for background cleanup.
+        """
+        now = self._time()
+        evicted = 0
+        while self._expiry_heap:
+            if limit is not None and evicted >= limit:
+                break
+            expires_at, version, payload_id = self._expiry_heap[0]
+            if expires_at > now:
+                break
+            heapq.heappop(self._expiry_heap)
+            session = self._sessions.get(payload_id)
+            if session is None or session.version != version:
+                # Stale entry (session completed/expired already) — skip.
+                continue
+            self._evict_session_locked(payload_id, session)
+            evicted += 1
+
+        # Also expire pending entries that outlived the ACTIVE TTL.
         expired_pending: list[str] = []
         for payload_id, pending in self._pending.items():
             if pending.created_at + self._active_ttl <= now:
@@ -222,15 +286,29 @@ class ProcessStore:
         for payload_id in expired_pending:
             pending = self._pending.pop(payload_id)
             self.current_bytes -= pending.reserved_bytes
+            evicted += 1
+
+        return evicted
+
+    async def evict_expired(self, limit: int | None = None) -> int:
+        """Public entry point for background eviction (bounded work per call)."""
+        async with self._lock:
+            return self._evict_expired_locked(limit=limit)
 
     def _trim_tombstones_locked(self) -> None:
-        if len(self._tombstones) <= self._tombstone_max_entries:
-            return
+        """Remove only expired tombstones (O(k log n), not O(n)).
+
+        Live tombstones are NEVER evicted early: doing so would break the 410
+        guarantee for still-active payload_ids. Capacity is instead enforced by
+        rejecting new IDs with 429 when the tombstone limit is reached.
+        """
         now = self._time()
-        for payload_id in list(self._tombstones):
-            if len(self._tombstones) <= self._tombstone_max_entries:
+        while self._tombstone_heap:
+            expiry, payload_id = self._tombstone_heap[0]
+            if expiry > now:
                 break
-            if self._tombstones[payload_id] <= now:
+            heapq.heappop(self._tombstone_heap)
+            if self._tombstones.get(payload_id) == expiry:
                 self._tombstones.pop(payload_id, None)
 
     def _completed_future(self, session: ProcessSession) -> asyncio.Future[str]:

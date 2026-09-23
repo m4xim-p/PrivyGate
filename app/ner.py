@@ -55,11 +55,6 @@ class NERDetector:
         suspicious_person_span = False
         precheck_skipped = False
         try:
-            if self._precheck is not None and self._precheck.detect(text):
-                # The rule-based pre-check already found names; skip the
-                # expensive NER inference for this text.
-                precheck_skipped = True
-                return matches
             predictions = self._backend.predict(text)
             matches, suspicious_person_span = self._person_matches(text, predictions)
             return matches
@@ -97,7 +92,7 @@ class NERDetector:
                 is_suspicious = _word_count(text[run_start:run_end]) > 4
                 suspicious_person_span = suspicious_person_span or is_suspicious
 
-                groups = _split_at_bio_starts(current_tokens)
+                groups = _split_at_bio_starts(current_tokens, text)
                 for group in groups:
                     start = group[0][0].start
                     end = group[-1][0].end
@@ -176,6 +171,7 @@ class TransformersNERBackend:
         max_length: int = 512,
         stride: int = 64,
         offline: bool = True,
+        model_path: str | None = None,
     ) -> "TransformersNERBackend":
         try:
             import torch
@@ -191,14 +187,22 @@ class TransformersNERBackend:
             os.environ.setdefault("HF_HUB_OFFLINE", "1")
             os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
+        # Prefer a pre-downloaded local model directory (e.g. /models/ner baked
+        # into the image at build time). local_files_only=True forbids any
+        # network download at runtime.
+        source = model_path or model_name
+        local_only = offline or model_path is not None
+
         tokenizer = AutoTokenizer.from_pretrained(
-            model_name,
+            source,
             revision=revision,
             use_fast=True,
+            local_files_only=local_only,
         )
         model = AutoModelForTokenClassification.from_pretrained(
-            model_name,
+            source,
             revision=revision,
+            local_files_only=local_only,
         )
         return cls(
             tokenizer,
@@ -277,17 +281,35 @@ def _word_count(value: str) -> int:
 
 def _split_at_bio_starts(
     tokens: Sequence[tuple[NERTokenPrediction, str]],
+    text: str = "",
 ) -> list[list[tuple[NERTokenPrediction, str]]]:
-    """Split only at explicit BIO starts; otherwise preserve the broad span."""
+    """Split a broad PER run into separate names.
+
+    Splits at explicit BIO starts (B- prefix) and at standalone coordinating
+    conjunctions ("и", "а", "но", "да") that separate two names within one run,
+    e.g. "Иванов Иван и Полищук Максим" -> ["Иванов Иван", "Полищук Максим"].
+
+    A conjunction only splits when it is a standalone word surrounded by
+    whitespace, so it does not split inside a token (e.g. the "а" ending of
+    "Мельникова" or the "и" inside a BPE sub-token).
+    """
+    conjunctions = {"и", "а", "но", "да"}
 
     groups: list[list[tuple[NERTokenPrediction, str]]] = []
     current: list[tuple[NERTokenPrediction, str]] = []
     for token in tokens:
-        _, prefix = token
-        if prefix == "B" and current:
+        prediction, prefix = token
+        token_text = text[prediction.start : prediction.end] if text else ""
+        is_conjunction = False
+        if token_text.casefold() in conjunctions and text:
+            before = text[prediction.start - 1] if prediction.start > 0 else " "
+            after = text[prediction.end] if prediction.end < len(text) else " "
+            is_conjunction = before.isspace() and after.isspace()
+        if (prefix == "B" or is_conjunction) and current:
             groups.append(current)
             current = []
-        current.append(token)
+        if not is_conjunction:
+            current.append(token)
     if current:
         groups.append(current)
     return groups

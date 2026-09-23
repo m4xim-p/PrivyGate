@@ -7,6 +7,7 @@ import hashlib
 import logging
 
 from app.errors import ConflictError, ProcessError, TooManyRequestsError
+from app.metrics import ProcessMetrics
 from app.pii_engine import PIIMaskingEngine
 from app.policy import ConsumerPolicy
 from app.process_store import ProcessSession, ProcessStore, SessionState
@@ -54,12 +55,14 @@ class ProcessService:
         waiter_timeout: float = 5.0,
         max_payload_bytes: int = 400_000,
         max_estimated_tokens: int = 100_000,
+        metrics: ProcessMetrics | None = None,
     ) -> None:
         self._engine = engine
         self.store = store
         self._waiter_timeout = waiter_timeout
         self._max_payload_bytes = max_payload_bytes
         self._max_estimated_tokens = max_estimated_tokens
+        self.metrics = metrics or ProcessMetrics()
 
     async def process(
         self,
@@ -85,10 +88,17 @@ class ProcessService:
             )
 
         fingerprint, length = _payload_fingerprint(payload)
-        pending = await self.store.get_or_create_pending(payload_id, length, fingerprint)
+        try:
+            pending = await self.store.get_or_create_pending(
+                payload_id, length, fingerprint
+            )
+        except TooManyRequestsError:
+            self.metrics.inc_rate_limited()
+            raise
 
         if not pending.is_new:
             if pending.conflict:
+                self.metrics.inc_conflict()
                 raise ConflictError("payload_id already used with a different payload")
             return await self._await_pending(payload_id, pending.future, fingerprint, length)
 
@@ -98,6 +108,8 @@ class ProcessService:
                 payload_id, payload, masked, pii_count, pii_types
             )
             pending.future.set_result(masked)
+            self.metrics.inc_mask()
+            self.metrics.inc_new_id()
             logger.info(
                 "process_masked payload_id=%s pii_count=%d pii_types=%s",
                 payload_id,
@@ -106,9 +118,11 @@ class ProcessService:
             )
             return masked
         except ProcessError:
+            self.metrics.inc_error()
             await self.store.release_pending(payload_id, pending.future)
             raise
         except BaseException as exc:
+            self.metrics.inc_error()
             await self.store.release_pending(payload_id, pending.future)
             if not pending.future.done():
                 pending.future.set_exception(exc)
@@ -134,6 +148,7 @@ class ProcessService:
             )
             return result
         except TimeoutError:
+            self.metrics.inc_rate_limited()
             raise TooManyRequestsError("waiter timed out", retry_after=1.0) from None
 
     def _resolve_existing(
@@ -147,9 +162,12 @@ class ProcessService:
         masked_fp, masked_len = _payload_fingerprint(session.masked)
 
         if fingerprint == original_fp and length == original_len:
+            self.metrics.inc_retry()
             return session.masked
         if fingerprint == masked_fp and length == masked_len:
             if session.state is SessionState.ACTIVE:
                 asyncio.get_running_loop().create_task(self.store.complete(payload_id))
+            self.metrics.inc_demask()
             return session.original
+        self.metrics.inc_conflict()
         raise ConflictError("payload_id already used with a different payload")

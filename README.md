@@ -100,6 +100,10 @@ curl -N http://localhost:8000/v1/chat/completions \
 демаскирование коррелируются по `payload_id`. Полная OpenAPI-спецификация —
 [`process_api.yaml`](process_api.yaml).
 
+По каждому запросу `/process` логируются выявленные типы ПДН и их количество
+(без raw PII): `process_masked payload_id=... pii_count=4 pii_types=EMAIL,PASSPORT,...`.
+Это соответствует ТЗ §4.1 (логирование выявленных типов ПДН по каждому запросу).
+
 ```bash
 # Маскирование (первый запрос с новым payload_id)
 curl -X POST http://localhost:8000/process \
@@ -117,12 +121,59 @@ curl -X POST http://localhost:8000/process \
 Конфигурация `/process` через переменные окружения: `PROCESS_ACTIVE_TTL_SECONDS`,
 `PROCESS_COMPLETED_TTL_SECONDS`, `PROCESS_STORE_MAX_ENTRIES`, `PROCESS_STORE_MAX_BYTES`,
 `PROCESS_WAITER_TIMEOUT_SECONDS`, `PROCESS_MAX_PAYLOAD_BYTES`, `PROCESS_MAX_ESTIMATED_TOKENS`,
-`PROCESS_MASK_WORKERS`, `PROCESS_NER_ENABLED`, `PROCESS_NER_MAX_CONCURRENCY`,
-`PROCESS_DETECTION_PROFILE`.
+`PROCESS_MASK_WORKERS`, `PROCESS_DETECTION_PROFILE`. NER-переменные (`NER_ENABLED`,
+`NER_MODEL`, `NER_MODEL_REVISION`, `NER_MAX_CONCURRENCY` и др.) описаны в разделе
+«Optional local NER».
 
 При превышении лимита `/process` возвращает `413` с пояснением в стиле DeepSeek:
 `payload too large: maximum context length is N tokens, but you requested M tokens`.
 Byte и token лимиты проверяются отдельно (не «100k = 400 КБ»).
+
+## Метрики (`GET /metrics`)
+
+Gateway отдаёт runtime-метрики в формате Prometheus text по `GET /metrics`
+(реализация — `app/metrics.py`). Endpoint лёгкий: только чтение счётчиков и
+размеров store, без дорогих вычислений в hot path. Не логирует raw PII.
+
+```bash
+curl http://localhost:8000/metrics
+```
+
+Доступные метрики:
+
+| Метрика | Тип | Описание |
+|---|---|---|
+| `privygate_uptime_seconds` | gauge | Время работы процесса. |
+| `privygate_process_mask_total` | counter | Успешные маскирования `/process`. |
+| `privygate_process_demask_total` | counter | Успешные демаскирования `/process`. |
+| `privygate_process_retry_total` | counter | Повторные запросы (retry masking/demasking). |
+| `privygate_process_rate_limited_total` | counter | Ответы `429` (admission limit / waiter timeout). |
+| `privygate_process_conflict_total` | counter | Конфликты `409` (payload_id с другим payload). |
+| `privygate_process_error_total` | counter | Внутренние ошибки `5xx`. |
+| `privygate_process_new_id_total` | counter | Новые уникальные `payload_id`. |
+| `privygate_store_evictions_total` | counter | Число evicted (истёкших) сессий. |
+| `privygate_store_sessions` | gauge | Число сессий в store (ACTIVE + COMPLETED). |
+| `privygate_store_pending` | gauge | Число pending-запросов (ожидают маскирования). |
+| `privygate_store_tombstones` | gauge | Число tombstone-записей (истёкшие payload_id). |
+| `privygate_store_bytes` | gauge | Приблизительный размер store в байтах. |
+| `privygate_event_loop_delay_ms` | gauge | Задержка event loop (мс), замеряется фоновой задачей. |
+
+Счётчики инкрементируются в `ProcessService` (лёгкие атомарные инкременты, не в
+hot path). Размер store читается из in-memory store на запрос. Event loop delay
+сэмплируется отдельной фоновой задачей (`EventLoopDelaySampler`), не в request
+path.
+
+Store использует min-heap индекс истечения (ADR-0006): ленивая проверка TTL при
+обращении к `payload_id`, eviction перед проверкой capacity, фоновая очистка
+истёкших записей небольшими порциями (`StoreEvictionTask`). Это устраняет O(n)
+скан всех сессий на каждый запрос (исходный bottleneck, 78% активного CPU).
+
+Tombstone TTL = 60s (небольшой запас после COMPLETED TTL 120s), настраивается
+через `PROCESS_TOMBSTONE_TTL_SECONDS`. `tombstone_max_entries` по умолчанию
+100 000 (`PROCESS_TOMBSTONE_MAX_ENTRIES`). Действующие tombstones **никогда не
+вытесняются рано** (это сломало бы защиту `410`); при достижении лимита новые
+`payload_id` отклоняются с `429` + `Retry-After`, пока tombstones не истекут по
+TTL.
 
 ### Политики потребителей (ADR-0004)
 
@@ -199,6 +250,34 @@ Per-consumer настройка маскирования через `PolicyRegis
 `/process` (AlfaSonar) всегда использует default profile `alfasonar` без auth.
 Allowlist применяется только к продуктовому `/v1/chat/completions`.
 
+### Типы маскирования (`masking_mode`)
+
+Каждая система-потребитель может выбрать вид маскирования через поле
+`masking_mode`. Доступны три режима:
+
+| Режим | Описание | Пример для `Иван Иванов, email ivan@example.com` |
+|---|---|---|
+| `typed_placeholder` (по умолчанию) | Замена на типизированный placeholder | `__PII_PERSON_1__, email __PII_EMAIL_1__` |
+| `synthetic` | Замена на фиксированные синтетические данные | `Иванов Иван Иванович_1, email user@example.com_1` |
+| `format_preserving` | Сохранение длины и разделителей, символы → `*` | `**** ******, email ****************` |
+
+Пример конфига с синтетическим маскированием:
+
+```json
+{
+  "consumer_id": "synthetic-agent",
+  "enabled": true,
+  "masking_mode": "synthetic",
+  "allow_demasking": true,
+  "api_keys": ["CHANGE_ME_synthetic_api_key"]
+}
+```
+
+`typed_placeholder` — безопасный default для AlfaSonar (ADR-0003). `synthetic` и
+`format_preserving` — дополнительные возможности для отдельных consumer profiles
+(критерий 3.7). Во всех режимах mapping хранит original, поэтому demasking
+работает одинаково.
+
 ### Dev-only просмотр полного запроса к mock backend
 
 Для ручной проверки masking на синтетических данных можно явно включить полный
@@ -242,6 +321,55 @@ python scripts/load_test.py --concurrency 100
 latency. Итоговый отчёт содержит throughput, average, p50/p95 и распределение
 ошибок. В запросах используются только синтетические email и телефоны.
 
+## Нагрузочное тестирование `/process` (k6)
+
+Воспроизводимый benchmark контракта `/process` по профилю AlfaSonar
+(разгон до 1000 RPS, до 200 соединений, keep-alive, masking/demasking поровну,
+retries, 429). Требуется [k6](https://k6.io) (`brew install k6`) и запущенный
+gateway с `/metrics`.
+
+```bash
+# Полный профиль (ramp 60s + hold 60s, peak 1000 RPS, 200 VU)
+scripts/k6/run_benchmark.sh --container privygate-bench
+
+# Уменьшенный профиль для быстрой проверки
+scripts/k6/run_benchmark.sh --ramp 30 --hold 30 --peak 1000 --vus 200 --container privygate-bench
+```
+
+`run_benchmark.sh` запускает параллельно:
+
+- **k6** (`scripts/k6/process_load.js`) — HTTP-метрики: latency (mask/demask
+  отдельно), RPS, retries, 429, новые ID, round-trip checks;
+- **Python-сборщик** (`scripts/k6/metrics_collector.py`) — real-time серверные
+  метрики: store size, event loop delay (через `/metrics`), CPU/RSS процесса
+  (через `--container` для docker или `--pid` для host-процесса).
+
+Опции `run_benchmark.sh`: `--ramp`, `--hold`, `--peak`, `--vus`, `--duration`
+(длительность сборщика), `--container`/`--pid` (источник CPU/RSS).
+
+### CPU-профилирование (py-spy)
+
+Для снятия CPU-профиля с разбивкой по функциям (ProcessStore / детекторы /
+HTTP) во время нагрузки используется `py-spy` внутри контейнера:
+
+```bash
+# Установить py-spy в контейнер (один раз)
+docker exec privygate-bench pip install py-spy
+
+# Снять CPU-профиль во время 5-минутного прогона (ramp 60s + hold 240s)
+scripts/k6/cpu_profile.sh --container privygate-bench --peak 1000 --ramp 60 --hold 240 --vus 200
+```
+
+`cpu_profile.sh` запускает `py-spy record` внутри контейнера параллельно с k6,
+затем анализирует профиль через `scripts/k6/analyze_profile.py`, агрегируя
+сэмплы по категориям: `ProcessStore`, `Detectors`, `HTTP`, `Idle` (idle worker
+threads). Результат — разбивка активного CPU по категориям и топ функций.
+
+Результаты фиксируются в [`docs/benchmarks/load-test-baseline.md`](docs/benchmarks/load-test-baseline.md)
+и служат точкой сравнения для подтверждения/опровержения улучшений или регрессий
+после изменений (правило AGENTS.md: производительные оптимизации принимаются
+только вместе с воспроизводимым benchmark).
+
 ## Optional local NER
 
 По умолчанию NER выключен, и Gateway использует только rule-based detectors. Для
@@ -265,6 +393,30 @@ tokenizer windows. В лог попадают только latency, status и к
 ```bash
 NER_ENABLED=true docker compose up --build
 ```
+
+NER-модель разбивает широкие PERSON-span'ы по союзам («и», «а»), чтобы не
+пропускать имена в смешанных предложениях (например, «Иванов Иван и Полищук
+Максим» → два отдельных имени).
+
+### Кеширование NER-модели в docker-образе
+
+При `NER_ENABLED=true` модель скачивается **при сборке образа** в `/models/ner`
+(через `snapshot_download`). В runtime модель загружается из `/models/ner` с
+`local_files_only=True` — сетевая загрузка запрещена (`NER_OFFLINE=true` по
+умолчанию). Если модель отсутствует или повреждена, запуск при `NER_ENABLED=true`
+завершается ошибкой.
+
+```bash
+# Сборка образа с предзагруженной моделью
+docker build --build-arg INSTALL_NER=true -t privygate .
+
+# Запуск (модель грузится из /models/ner, без сети)
+NER_ENABLED=true docker compose up --build
+```
+
+`NER_MODEL_PATH` (по умолчанию `/models/ner`) задаёт каталог локальной модели.
+`NER_OFFLINE` (по умолчанию `true`) запрещает скачивание из Hugging Face Hub в
+runtime.
 
 ## Ограничения MVP
 
