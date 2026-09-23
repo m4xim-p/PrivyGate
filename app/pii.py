@@ -724,11 +724,19 @@ def _is_date_start(text: str, index: int) -> bool:
     ):
         return True
     # Numeric DD.MM.YYYY / DD.MM.YY
-    return (
+    if (
         text[index : index + 2].isdigit()
         and text[index + 2] == "."
         and text[index + 3 : index + 5].isdigit()
         and text[index + 5] == "."
+    ):
+        return True
+    # Slash DD/MM/YYYY
+    return (
+        text[index : index + 2].isdigit()
+        and text[index + 2] == "/"
+        and text[index + 3 : index + 5].isdigit()
+        and text[index + 5] == "/"
     )
 
 
