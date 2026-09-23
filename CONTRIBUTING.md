@@ -73,6 +73,8 @@ p50/p95/p99, RPS, error rate и размером входа.
 - Публичное поведение и ограничения описаны в README или профильном документе.
 - Для архитектурного решения обновлён ADR.
 
-Перед commit/PR пройдите checklist из `SECURITY.md`. Для изменений `/process`
+Перед commit/PR пройдите checklist из `SECURITY.md` и сверьтесь с подробной моделью
+угроз в `docs/security.md` (fail-closed, dev-only logging, локальный NER, state `/process`).
+Для изменений `/process`
 дополнительно подтвердите: публичный вызов без auth headers не получает `403`, retries
 идемпотентны, store имеет entry/byte bounds, а payload и mapping отсутствуют в логах.
