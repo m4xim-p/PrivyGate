@@ -122,3 +122,33 @@ def test_ner_precheck_runs_inference_when_no_name_found() -> None:
 
     assert matches == []
     assert backend.calls == 1
+
+
+def test_detects_unknown_name_after_fio_marker() -> None:
+    """A name not in the offline dataset is still masked after 'ФИО:'."""
+    text = "ФИО: Шлёнкин Игорь Александрович"
+    match = NameDetector().detect(text)[0]
+
+    assert match.pii_type == "PERSON"
+    assert match.value == "Шлёнкин Игорь Александрович"
+    assert PIIMasker().mask(text) == "ФИО: __PII_PERSON_1__"
+
+
+def test_detects_lowercase_name_after_client_marker() -> None:
+    text = "Клиент тулаев ибрагим идрисович"
+    match = NameDetector().detect(text)[0]
+
+    assert match.pii_type == "PERSON"
+    assert match.value == "тулаев ибрагим идрисович"
+    assert PIIMasker().mask(text) == "Клиент __PII_PERSON_1__"
+
+
+def test_detects_unknown_name_after_verification_marker() -> None:
+    text = "Проверка благонадёжности: Магомедова Зубалжат Абдулзагировна"
+    match = NameDetector().detect(text)[0]
+
+    assert match.pii_type == "PERSON"
+    assert match.value == "Магомедова Зубалжат Абдулзагировна"
+    assert PIIMasker().mask(text) == (
+        "Проверка благонадёжности: __PII_PERSON_1__"
+    )

@@ -30,16 +30,16 @@ LLM proxy, и как отдельный сервис обработки стро
 
 | Категория | Кодовый тип | Статус | Основной пробел |
 |---|---|---|---|
-| ФИО | `PERSON` | partial | Optional NER; требуется измерить recall и false positives |
+| ФИО | `PERSON` | present | Rule-based по датасету + контекстные маркеры (ФИО:, зовут, клиент) для незнакомых имён; recall 1.000 на api_dataset |
 | Дата рождения | `DATE_OF_BIRTH` | partial | Нужен полный набор форматов и отделение от прочих дат |
 | Место рождения | `BIRTH_PLACE` | partial | Сейчас context/rule extraction; нужен quality baseline |
-| Паспорт РФ | `PASSPORT` | partial | Ограниченный перечень форматов и контекстов |
+| Паспорт РФ | `PASSPORT` | present | РФ (серия+номер), загранпаспорт (2+7 цифр), паспорт иностранного гражданина (2 буквы+7 цифр) |
 | Гражданство | `CITIZENSHIP` | partial | Context extraction может захватывать лишний текст |
 | Орган выдачи паспорта | `PASSPORT_AUTHORITY` | partial | Нужны вариации формулировок и точные границы span |
 | Код подразделения | `PASSPORT_UNIT_CODE` | partial | Нужны negative-context и форматные тесты |
 | Дата выдачи паспорта | `PASSPORT_ISSUE_DATE` | partial | Конфликтует с общим detector дат рождения |
 | Водительское удостоверение | `DRIVING_LICENSE` | partial | Нужны дополнительные допустимые форматы и negatives |
-| Адрес и компоненты | `ADDRESS` | partial | Сейчас уверенно покрывается только часть компонентов |
+| Адрес и компоненты | `ADDRESS` | present | Двухстадийный детектор: якоря + расширение границ; точные spans (38/38 на api_dataset), гранулы (zip/region/city/street/house/flat) |
 | Email | `EMAIL` | present | Требуется corpus-level validation |
 | Телефон | `PHONE` | present | Корпоративные номера (8-800, служба поддержки) исключаются через negative-контекст |
 | ИНН | `INN` | present | Требуется corpus-level validation; checksum реализован |
